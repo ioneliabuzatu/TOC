@@ -1,0 +1,9 @@
+scanpy
+numpy
+matpltlib
+pandas
+seaborn
+rpy2
+gprofiler
+anndata2ri
+pip3 install leidenalg

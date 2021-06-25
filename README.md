@@ -1,1 +1,1 @@
-## SingleCellRNAseqOptimalControl
+## TranscriptomicsOptimalControl
