@@ -1,0 +1,1 @@
+all_rna_data_npy_filepath = "Tran_RGC_scRNA/npys/processed-data/control_12h_1d_stacked.npy"
