@@ -3,7 +3,6 @@ import os
 
 import numpy as np
 import pandas as pd
-import config
 
 
 def sample_type_name(csv_filename):
@@ -12,7 +11,7 @@ def sample_type_name(csv_filename):
     elif "1d" in csv_filename:
         return "1d_after_crush"
     elif "12h" in csv_filename:
-        return "2d_after_crush"
+        return "12h_after_crush"
 
 
 def csv_to_npy():
@@ -30,7 +29,6 @@ def csv_to_npy():
 
 def concatenate_npy(npys_path="Tran_RGC_scRNA/npys"):
     all_rna = None
-    toy_rna = None
     for npy_filename in os.listdir(npys_path):
         if not os.path.isfile(os.path.join(npys_path, npy_filename)):
             continue
@@ -38,31 +36,14 @@ def concatenate_npy(npys_path="Tran_RGC_scRNA/npys"):
         load_file = np.load(filepath, allow_pickle=True)
         transposed = load_file.T
 
-        n_cells, n_genes = transposed.shape
-        idx = np.random.randint(n_cells - 1, size=1000)
-        toy_data_portion = transposed[idx, :]
-        np.save(f"{npys_path}/toy-data/{npy_filename}.toy.npy", toy_data_portion)
-
         if all_rna is not None:
             all_rna = np.vstack([all_rna, transposed])
         else:
             all_rna = transposed
 
-        if toy_rna is not None:
-            toy_rna = np.vstack([toy_rna, toy_data_portion])
-        else:
-            toy_rna = toy_data_portion
-
     np.save(f"{npys_path}/processed-data/control_12h_1d_stacked.npy", all_rna)
-    np.save(f"{npys_path}/toy-data/control_12h_1d_stacked_toy.npy", toy_rna)
-
-
-def get_toy_data():
-    all_rna_all_samples = np.load(config.all_rna_data_npy_filepath, allow_pickle=True)
-    print()
 
 
 if __name__ == "__main__":
     # csv_to_npy()
-    # concatenate_npy()
-    get_toy_data()
+    concatenate_npy()
