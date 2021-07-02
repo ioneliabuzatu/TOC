@@ -1,1 +1,5 @@
+root_npys = "Tran_RGC_scRNA/npys"
 all_rna_data_npy_filepath = "Tran_RGC_scRNA/npys/processed-data/control_12h_1d_stacked.npy"
+root_toy_data = "Tran_RGC_scRNA/npys/toy-data"
+PATH_TO_UNZIPPED_CSV_FILES = "Tran_RGC_scRNA/unzipped"
+root_single_processed_npy_files = "Tran_RGC_scRNA/npys/processed-data"

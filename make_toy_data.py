@@ -46,7 +46,7 @@ def make_toy_data(select_n_rows, select_n_cols, save=True):
     gene_names = np.zeros(len(idx_cols) + 1, dtype=object)
     gene_names[:-1] = all_rna_all_samples[0, :][idx_cols]
     gene_names[-1] = "sample_type"
-    toy_rna = np.vstack([gene_names, gene_names, toy_control_with_sample_col, toy_12h_with_sample_col,
+    toy_rna = np.vstack([gene_names, toy_control_with_sample_col, toy_12h_with_sample_col,
                          toy_1d_with_sample_col])
 
     if save:
