@@ -1,6 +1,6 @@
 scanpy
 numpy
-matpltlib
+matplotlib
 pandas
 seaborn
 rpy2
@@ -9,3 +9,4 @@ anndata2ri
 leidenalg
 altair
 MulticoreTSNE
+-e git+https://github.com/ministry-of-silly-code/experiment_buddy.git#egg=experiment_buddy
