@@ -133,3 +133,5 @@ Tran_RGC_scRNA/
 scenic
 *npy
 cuml/
+runs/
+wandb/
