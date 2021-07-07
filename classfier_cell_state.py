@@ -115,9 +115,21 @@ class CellStateClassifier(nn.Module):
             The number of output classes in the data.
         """
         super(CellStateClassifier, self).__init__()
-        self.fc = nn.Linear(num_genes, 1)
+        self.fc1 = nn.Linear(num_genes, num_genes*2)
+        self.fc2 = nn.Linear(num_genes*2, num_genes//2)
+        self.fc3 = nn.Linear(num_genes//2, 1)
+        torch.nn.init.xavier_uniform_(self.fc1.weight)
+        torch.nn.init.xavier_uniform_(self.fc2.weight)
+        torch.nn.init.xavier_uniform_(self.fc3.weight)
+        self.fc1.bias.data.fill_(0.01)
+        self.fc2.bias.data.fill_(0.01)
+        # self.fc3.bias.data.fill_(0.01)
         self.classifier = nn.Sequential(
-            self.fc
+            self.fc1,
+            nn.SELU(),
+            self.fc2,
+            nn.SELU(),
+            self.fc3
         )
 
     def forward(self, x):
@@ -126,8 +138,8 @@ class CellStateClassifier(nn.Module):
 
 
 class TranscriptomicsDataset(Dataset):
-    def __init__(self, filepath_data, normilize_by_max=True):
-        self.normalize_data = normilize_by_max
+    def __init__(self, filepath_data, normalize_by_max=True):
+        self.normalize_data = normalize_by_max
         self.data = np.load(filepath_data, allow_pickle=True)
         if isinstance(self.data[0, 0], str):
             self.genes_names = self.data[0, :]
