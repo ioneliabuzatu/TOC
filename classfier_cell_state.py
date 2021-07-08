@@ -141,6 +141,7 @@ class TranscriptomicsDataset(Dataset):
     def __init__(self, filepath_data, normalize_by_max=True):
         self.normalize_data = normalize_by_max
         self.data = np.load(filepath_data, allow_pickle=True)
+        print(f"data input has size: {self.data.shape}")
         if isinstance(self.data[0, 0], str):
             self.genes_names = self.data[0, :]
             self.data = self.data[1:, :]

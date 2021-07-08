@@ -42,15 +42,15 @@ def csv_to_npy():
         np.save(f"Tran_RGC_scRNA/npys/processed-data/{filename}.npy", df_to_numpy)
 
 
-def concatenate_npy(npys_path=config.root_single_processed_npy_files, memory_limit=True):
+def concatenate_npy(npys_path=config.root_single_processed_npy_files, memory_limit=True, stack_files=None):
     all_rna = None
     for idx_file, npy_filename in enumerate(os.listdir(npys_path)):
         if not os.path.isfile(os.path.join(npys_path, npy_filename)):
             continue
         if memory_limit:
-            if "12h" in npy_filename or "1d" in npy_filename or "2d" in npy_filename:
+            if not any(excluded in npy_filename for excluded in stack_files):
                 continue
-        print(f"Loading file #{idx_file}: {npy_filename} out of {len(os.listdir(npys_path))} files")
+        print(f"Loading file #{idx_file}: {npy_filename}")
         filepath = os.path.join(npys_path, npy_filename)
         load_file = np.load(filepath, allow_pickle=True).T
         data_removed_header_sample_type = load_file[1:, :]
@@ -66,9 +66,9 @@ def concatenate_npy(npys_path=config.root_single_processed_npy_files, memory_lim
         bytes = all_rna.size * all_rna.itemsize
         print(f"size {bytesto(bytes, 'g'):.3f} GB")
 
-    np.save(f"{config.root_npys}/stacked/control_4d_1w_2w.npy", all_rna)
+    np.save(f"{config.root_npys}/stacked/{'_'.join(stack_files)}.npy", all_rna)
 
 
 if __name__ == "__main__":
     # csv_to_npy()
-    concatenate_npy()
+    concatenate_npy(stack_files=["control", "2w"])

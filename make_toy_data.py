@@ -27,8 +27,9 @@ def make_toy_data(select_n_rows, select_n_cols, labels: list, save=True):
     toy_data = np.zeros(
         (select_n_rows * len(labels) + extra_row_for_header, select_n_cols + extra_column_for_labels), dtype=object
     )
-    idx_cols_genes = take_random_rows_xor_cols_indices(all_rna_all_samples.shape, select_n_rows, select_n_cols,
-                                                       take_only_cols_idx=True)
+    idx_cols_genes = take_random_rows_xor_cols_indices(
+        all_rna_all_samples.shape, select_n_rows, select_n_cols, take_only_cols_idx=True
+    )
 
     toy_data[0, :-1] = all_rna_all_samples[0, :][idx_cols_genes]
     toy_data[0, -1] = "sample_type"
@@ -55,4 +56,4 @@ def make_toy_data(select_n_rows, select_n_cols, labels: list, save=True):
 
 if __name__ == "__main__":
     labels = ["control", "2w_after_crush"]
-    make_toy_data(select_n_rows=100, select_n_cols=1000, labels=labels, save=True)
+    make_toy_data(select_n_rows=2000, select_n_cols=2000, labels=labels, save=True)

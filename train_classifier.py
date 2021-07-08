@@ -14,7 +14,7 @@ from classfier_cell_state import train_val_dataset
 from classfier_cell_state import update
 
 
-def train(epochs=200):
+def train(filepath_training_data, epochs=200):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Run on {device}")
 
@@ -24,7 +24,7 @@ def train(epochs=200):
 
     writer = config.tensorboard
 
-    dataset = TranscriptomicsDataset(filepath_data=config.filepath_toy_for_training)
+    dataset = TranscriptomicsDataset(filepath_data=filepath_training_data)
     train_and_val_dataset = train_val_dataset(dataset, val_split=0.25)
     train_dataloader = DataLoader(train_and_val_dataset["train"], batch_size=config.batch_size, shuffle=True)
     val_dataloader = DataLoader(train_and_val_dataset["val"], batch_size=config.batch_size, shuffle=True)
@@ -43,4 +43,4 @@ def train(epochs=200):
 
 
 if __name__ == "__main__":
-    train(epochs=config.epochs)
+    train(filepath_training_data=config.filepath_full_control_2w, epochs=config.epochs)
