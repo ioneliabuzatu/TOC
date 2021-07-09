@@ -40,7 +40,8 @@ def train(filepath_training_data, epochs=200):
         writer.add_scalar("ValidationLoss", np.asarray(val_errors).mean(), epoch)
         accuracies = get_accuracy(network, val_dataloader)
         writer.add_scalar("Accuracy", np.asarray(accuracies).mean(), epoch)
+        torch.save(network.state_dict(), "classifier.pth")
 
 
 if __name__ == "__main__":
-    train(filepath_training_data=config.filepath_full_control_2w, epochs=config.epochs)
+    train(filepath_training_data=config.filepath_tmp, epochs=config.epochs)

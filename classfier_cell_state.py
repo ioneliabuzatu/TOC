@@ -133,6 +133,7 @@ class CellStateClassifier(nn.Module):
         )
 
     def forward(self, x):
+        print(f"expected model input is {x.shape}")
         x = self.classifier(x)
         return x
 
