@@ -136,3 +136,4 @@ cuml/
 runs/
 wandb/
 dask-worker-space/
+pySCENIC/
