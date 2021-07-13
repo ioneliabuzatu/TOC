@@ -16,5 +16,5 @@ epochs = 100
 batch_size = 64
 lr = 1e-3
 
-experiment_buddy.register(locals())
-tensorboard = experiment_buddy.deploy(host="", sweep_yaml="")
+# experiment_buddy.register(locals())
+# tensorboard = experiment_buddy.deploy(host="", sweep_yaml="")
