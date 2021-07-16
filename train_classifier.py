@@ -1,9 +1,11 @@
+import os
 import numpy as np
 import torch
 from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from torch.utils.tensorboard import SummaryWriter
 
 import config
 from classfier_cell_state import CellStateClassifier
@@ -22,16 +24,20 @@ def train(filepath_training_data, epochs=200):
     if device == "cuda":
         torch.cuda.manual_seed(1806)
 
-    writer = config.tensorboard
-
-    dataset = TranscriptomicsDataset(filepath_data=filepath_training_data)
-    train_and_val_dataset = train_val_dataset(dataset, val_split=0.25)
-    train_dataloader = DataLoader(train_and_val_dataset["train"], batch_size=config.batch_size, shuffle=True)
-    val_dataloader = DataLoader(train_and_val_dataset["val"], batch_size=config.batch_size, shuffle=True)
+    try:
+        writer = config.tensorboard
+    except AttributeError:
+        writer = SummaryWriter()
 
     network = CellStateClassifier(num_genes=config.genes_per_single_cell).to(device)
     sgd = optim.SGD(network.parameters(), lr=config.lr, momentum=0.9)
     criterium = nn.BCEWithLogitsLoss()
+
+    dataset = TranscriptomicsDataset(filepath_data=filepath_training_data, device=device)
+    train_and_val_dataset = train_val_dataset(dataset, val_split=0.25)
+    train_dataloader = DataLoader(train_and_val_dataset["train"], batch_size=config.batch_size, shuffle=True)
+    val_dataloader = DataLoader(train_and_val_dataset["val"], batch_size=config.batch_size, shuffle=True)
+
 
     for epoch in tqdm(range(epochs)):
         train_errors = update(network, train_dataloader, criterium, sgd)
@@ -41,6 +47,9 @@ def train(filepath_training_data, epochs=200):
         accuracies = get_accuracy(network, val_dataloader)
         writer.add_scalar("Accuracy", np.asarray(accuracies).mean(), epoch)
 
+        torch.save(network.state_dict(), os.path.join(config.checkpoint_filepath_classifier,
+                                                      "classifier_5kgenes.pth"))
+
 
 if __name__ == "__main__":
-    train(filepath_training_data=config.filepath_full_control_2w, epochs=config.epochs)
+    train(filepath_training_data=config.filepath_train_toy, epochs=config.epochs)
