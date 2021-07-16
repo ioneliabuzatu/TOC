@@ -10,8 +10,15 @@ PATH_TO_UNZIPPED_CSV_FILES = "data/Tran_RGC_scRNA/unzipped"
 root_single_processed_npy_files = "data/Tran_RGC_scRNA/npys/processed-data"
 filepath_toy_for_training = root_toy_data + "/control_and_2w_after_crush_5000x5000_toy.npy"
 filepath_full_control_2w = os.path.join(root_stacked_data, "control_2w.npy")
+filepath_trainset_control_2w = os.path.join(root_stacked_data, "control-2w-split","trainset_control_2w.npy")
+filepath_testset_control_2w = os.path.join(root_stacked_data, "control-2w-split","testset_control_2w.npy")
+filepath_train_toy = "data/Tran_RGC_scRNA/npys/toy-data/split-control_and_2w_after_crush_5000x5000_toy/train.npy"
+filepath_test_toy = "data/Tran_RGC_scRNA/npys/toy-data/split-control_and_2w_after_crush_5000x5000_toy/test.npy"
 
-genes_per_single_cell = 40791 #  5000
+
+checkpoint_filepath_classifier = os.path.join("models/checkpoints")
+
+genes_per_single_cell = 5000 # 40790 #  5000
 epochs = 100
 batch_size = 64
 lr = 1e-3

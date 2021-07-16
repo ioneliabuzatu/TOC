@@ -77,6 +77,7 @@ def accuracy(logits, targets):
     return accuracy_samples
 
 
+@torch.no_grad()
 def binary_acc(logits, targets):
     if logits.dim != targets.dim:
         targets = targets.unsqueeze(1)
@@ -138,9 +139,12 @@ class CellStateClassifier(nn.Module):
 
 
 class TranscriptomicsDataset(Dataset):
-    def __init__(self, filepath_data, normalize_by_max=True):
+    def __init__(self, filepath_data, device, normalize_by_max=True, num_genes_for_batch_sgd=5000):
         self.normalize_data = normalize_by_max
+        self.device = device
         self.data = np.load(filepath_data, allow_pickle=True)
+        self.num_genes_to_zero_for_batch_sgd = (self.data.shape[1] - num_genes_for_batch_sgd) -1
+        self.num_genes_to_take_for_batch_sgd = num_genes_for_batch_sgd
         print(f"data input has size: {self.data.shape}")
         if isinstance(self.data[0, 0], str):
             self.genes_names = self.data[0, :]
@@ -149,8 +153,13 @@ class TranscriptomicsDataset(Dataset):
         self.labels_encoding, self.labels_categorical = np.unique(self.data[:, -1], return_inverse=True)
 
     def __getitem__(self, idx):
-        x = torch.from_numpy(np.array(self.data[idx, :-1], dtype=np.float32))
+        data = self.data[idx, :-1]
+        # indices_to_set_to_zero = np.random.permutation(self.num_genes_to_zero_for_batch_sgd)
+        # data = data[indices_to_set_to_zero]
+        # data[indices_to_set_to_zero] = 0.0
+        x = torch.from_numpy(np.array(data, dtype=np.float32))
         y = torch.from_numpy(np.array(self.labels_categorical[idx], dtype=np.float32))
+        del data
         return x, y
 
     def __len__(self):
