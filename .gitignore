@@ -130,7 +130,7 @@ dmypy.json
 *zip
 .idea
 Tran_RGC_scRNA/
-scenic
+data/scenic
 *npy
 cuml/
 runs/
