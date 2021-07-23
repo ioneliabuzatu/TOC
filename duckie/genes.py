@@ -16,7 +16,7 @@ class Gene:
         assert geneType in ("MR", "T")
         self.is_master_regulator = geneType == "MR"
 
-        self.concentration_history = []
+        self._concentration_history = []
         self.Conc_S = []
         self.dConc = []
         self.k = []  # For dynamics simulation it stores k1 to k4 for Rung-Kutta method, list of size 4 * num_c_to_evolve
@@ -35,11 +35,14 @@ class Gene:
     def Type(self):
         raise Exception("It's is_master_regulator now")
 
+    @property
+    def concentration_history(self):
+        raise Exception("use system_state")
 
     def append_concentration(self, current_concentration):
         if current_concentration < 0:
             current_concentration = 0
-        self.concentration_history.append(current_concentration)
+        self._concentration_history.append(current_concentration)
 
     def append_Conc_S(self, currConc):
         if currConc < 0:
@@ -86,6 +89,7 @@ class Gene:
         """
         selects input indices from self.Conc and form sc Expression
         """
+        # Take two sampled expression
         self.scExpression = np.array(self.concentration_history)[list_indices]
 
     def set_ss_conc_U(self, u_ss):

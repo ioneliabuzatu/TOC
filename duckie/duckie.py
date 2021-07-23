@@ -1,15 +1,26 @@
 import csv
 import sys
 
+import jax.numpy as np
+import jax.ops
 import networkx as nx
-import numpy as np
+import numpy as onp
+import tqdm
 
+import duckie.constants as c
 import duckie.genes
+
+# TODO these have to be removed to allow jax to calculate the correct gradients
+np.int = int
+np.float = float
+np.random = onp.random
+np.copy = onp.copy
 
 
 class Ducky:
-    def __init__(self, number_genes, number_gene_types, cells_to_simulate, noise_params, noise_type, decays, dynamics=False, sampling_state=10, tol=1e-3, window_length=100,
-                 dt=0.01, optimize_sampling=False, bifurcation_matrix=None, noise_params_splice=None, noise_type_splice=None, splice_ratio=4, dt_splice=0.01):
+    def __init__(self, number_genes, number_gene_types, cells_to_simulate, noise_params, noise_type, decays, input_file_taregts, input_file_regs, shared_coop_state=0,
+                 dynamics=False, sampling_state=10, tol=1e-3, window_length=100, dt=0.01, optimize_sampling=False, bifurcation_matrix=None, noise_params_splice=None,
+                 noise_type_splice=None, splice_ratio=4, dt_splice=0.01):
         """
         Noise is a gaussian white noise process with zero mean and finite variance.
         noise_params: The amplitude of noise in CLE. This can be a scalar to use for all genes or an array with the same size as number_genes.
@@ -47,6 +58,11 @@ class Ducky:
         self.binDict = {}  # This maps bin ID to list of gene objects in that bin; only used for dynamics simulations
         self.max_levels = 0
         self.init_concentrations = np.zeros((number_genes, number_gene_types))
+        self.simulation_length = self.sampling_state_ * self.num_cells
+
+        # TODO: This should be a list of self.simulation_length x (self.num_cell_types, self.num_genes)
+        self.system_state = np.zeros((self.num_cell_types, self.num_genes, self.simulation_length))
+
         self.mean_expression = -1 * np.ones((number_genes, number_gene_types))
         self.noise_type = noise_type
         self.dynamics = dynamics
@@ -69,15 +85,14 @@ class Ducky:
         elif np.shape(noise_params)[0] == number_genes:
             self.noiseParamsVector_ = noise_params
         else:
-            print("Error: expect one noise parameter per gene")
+            raise Exception("Error: expect one noise parameter per gene")
 
         if np.isscalar(decays) == 1:
             self.decayVector_ = np.repeat(decays, number_genes)
         elif np.shape(decays)[0] == number_genes:
             self.decayVector_ = decays
         else:
-            print("Error: expect one decay parameter per gene")
-            sys.exit()
+            raise Exception("Error: expect one decay parameter per gene")
 
         if self.dynamics:
             if (self.bifurcationMat_ is None).any():
@@ -101,18 +116,18 @@ class Ducky:
             elif np.shape(noise_params_splice)[0] == number_genes:
                 self.noiseParamsVectorSp_ = noise_params_splice
             else:
-                print("Error: expect one splicing noise parameter per gene")
-                sys.exit()
+                raise Exception("Error: expect one splicing noise parameter per gene")
 
             if np.isscalar(splice_ratio):
                 self.ratioSp_ = np.repeat(splice_ratio, number_genes)
             elif np.shape(splice_ratio)[0] == number_genes:
                 self.ratioSp_ = splice_ratio
             else:
-                print("Error: expect one splicing ratio parameter per gene")
-                sys.exit()
+                raise Exception("Error: expect one splicing ratio parameter per gene")
 
-    def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
+        self.build_graph(input_file_taregts, input_file_regs, shared_coop_state)
+
+    def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state):
         """
         # 1- shared_coop_state: if >0 then all interactions are modeled with that
         # coop state, and coop_states in input_file_taregts are ignored. Otherwise,
@@ -161,7 +176,7 @@ class Ducky:
 
             else:
                 for indRow, row in enumerate(reader):
-                    nRegs = np.int(np.float(row[1]))
+                    nRegs = int(float(row[1]))
                     ##################### Raise Error ##########################
                     if nRegs == 0:
                         print("Error: a master regulator (#Regs = 0) appeared in input")
@@ -189,7 +204,7 @@ class Ducky:
                     raise Exception("Error: Inconsistent number of bins")
 
                 masterRegs.append(int(float(row[0])))
-                self.graph_[int(float(row[0]))]['rates'] = [np.float(i) for i in row[1:]]
+                self.graph_[int(float(row[0]))]['rates'] = onp.asarray(row[1:], dtype=np.float)
                 self.graph_[int(float(row[0]))]['regs'] = []
                 self.graph_[int(float(row[0]))]['level'] = -1
 
@@ -297,6 +312,8 @@ class Ducky:
         if decided to make it work on multiple interaction, repression should be taken care as well.
 
         """
+        assert params.shape[1:] == (4,)
+        assert reg_conc.shape[1:] == (9,)
         _, contribution, coop_state, half_response = params.T
         repressive = contribution < 0
 
@@ -304,8 +321,8 @@ class Ducky:
         denom = np.power(half_response.T, coop_state) + num
 
         response = np.true_divide(num, denom)
-        is_active = reg_conc.astype(np.bool)
-        response[:, repressive] = 1 - response[:, repressive]
+        is_active = reg_conc.astype(bool)
+        response = jax.ops.index_update(response, jax.ops.index[:, repressive], 1 - response[:, repressive])
         # return response * is_active + repressive * (~is_active)
         return response + repressive * (~is_active).T
 
@@ -341,26 +358,27 @@ class Ducky:
 
             if is_master_regulator:
                 gene_group_rates = self.graph_[gene_group_id]['rates']
+                decayed_gene_group_rates = np.true_divide(gene_group_rates, group_decay_rate)
 
-                for cell_type_idx, rate in enumerate(gene_group_rates):
-                    cell_type_concentration = np.true_divide(rate, group_decay_rate)
-                    gene_group[cell_type_idx].append_concentration(cell_type_concentration)
+                self.system_state = jax.ops.index_update(self.system_state, jax.ops.index[:, gene_group_id, 0], decayed_gene_group_rates)
+
+                for cell_type_idx, rate in enumerate(decayed_gene_group_rates):
+                    gene_group[cell_type_idx].append_concentration(rate)
+                    assert self.system_state[cell_type_idx, gene_group_id, 0] == rate
 
             else:
                 params = self.graph_[gene_group_id]['params']
+                params = np.array(params)
+                gene_ids = params[:, c.gene_ids].astype(int)
+                regulator_concentration = self.mean_expression[gene_ids, :]
+
+                contribution = params[:, c.contribution]
+                rates = np.abs(contribution) * self.hill(regulator_concentration, params)
+                cell_type_concentration = np.true_divide(rates, group_decay_rate)
+                total_cell_type_concentration = cell_type_concentration.sum(1)
 
                 for cell_type_idx in range(self.num_cell_types):
-                    rate = 0
-                    for interTuple in params:
-                        gene_id, contribution, coop_state, half_response = interTuple
-
-                        regulator_concentration = self.mean_expression[gene_id, cell_type_idx]
-
-                        repressive = contribution < 0
-                        rate += np.abs(contribution) * self.hill_(regulator_concentration, half_response, coop_state, repressive)
-
-                    cell_type_concentration = np.true_divide(rate, group_decay_rate)
-                    gene_group[cell_type_idx].append_concentration(cell_type_concentration)
+                    gene_group[cell_type_idx].append_concentration(total_cell_type_concentration[cell_type_idx])
 
     def calculate_prod_rate_(self, gene_group, level):
         """
@@ -381,115 +399,126 @@ class Ducky:
             cell_types = [gb.cell_type for gb in gene_group]
             currStep = gene_group[0].simulated_steps
             # lastLayerGenes = np.copy(self.levels_to_vertices[level + 1])
-            x0 = np.zeros((len(regIndices), len(cell_types)))
+            # x0 = np.zeros((len(regIndices), len(cell_types)))
+            x0 = []
 
             params = np.array(params)
             Ks = np.abs(params[:, 1])
 
             for tupleIdx, rIdx in enumerate(regIndices):
+                x0.append([])
                 regGeneLevel, regGeneIdx = self.gene_id_to_level_and_idx[rIdx]
                 regGene_allBins = self.levels_to_vertices[regGeneLevel][regGeneIdx]
 
                 # x0 = []
                 for colIdx, bIdx in enumerate(cell_types):
                     x0_i = regGene_allBins[bIdx].concentration_history[currStep]
-                    x0[tupleIdx, colIdx] = x0_i
+                    x0[-1].append(x0_i)
                     # x0.append(x0_i)
                 # x0 = np.array(x0)
 
                 for colIdx, bIdx in enumerate(cell_types):
                     assert colIdx == bIdx
 
+            x0 = np.array(x0)
             hillMatrix = self.hill(x0, params)
             return np.matmul(Ks, hillMatrix.T)
 
     def CLE_simulator_(self, level):
         self.calculate_half_response_(level)
         self.initialize_gene_concentration(level)
-        num_simulation_steps = self.sampling_state_ * self.num_cells
 
         to_simulate = np.copy(self.levels_to_vertices[level]).tolist()
         print("There are " + str(len(to_simulate)) + " genes to simulate in this layer")
 
-        # pbar = tqdm.tqdm()
-        old = None
+        pbar = tqdm.tqdm(total=self.simulation_length - 1)
+        pbar.update(1)
+        simulation_time = 0
 
         while to_simulate:
-            num_remaining_genes = len(to_simulate)
-            if old != num_remaining_genes:
-                old = num_remaining_genes
-                print("\t Still " + str(num_remaining_genes) + " genes to simulate")
-                sys.stdout.flush()
-
-            completed_genes = []
-            for gene_idx, gene_group in enumerate(to_simulate):
-                gene_group_id = gene_group[0].ID
-                gene_group_level, gIDX = self.gene_id_to_level_and_idx[gene_group_id]
-
-                assert level == gene_group_level
-
-                current_expression = [gb.concentration_history[-1] for gb in gene_group]
-
-                # Calculate production rate
-                prod_rate = self.calculate_prod_rate_(gene_group, level)
-
-                # Calculate decay rate
-                decay = np.multiply(self.decayVector_[gene_group_id], current_expression)
-
-                # Calculate noise
-
-                if self.noise_type == 'sp':
-                    raise NotImplementedError
-                    # This notation is inconsistent with our formulation, dw should
-                    # include dt^0.5 as well, but here we multipy dt^0.5 later
-                    dw = np.random.normal(size=len(current_expression))
-                    amplitude = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(prod_rate, 0.5))
-                    noise = np.multiply(amplitude, dw)
-
-                elif self.noise_type == "spd":
-                    raise NotImplementedError
-                    dw = np.random.normal(size=len(current_expression))
-                    amplitude = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(prod_rate, 0.5) + np.power(decay, 0.5))
-                    noise = np.multiply(amplitude, dw)
-
-                elif self.noise_type == "dpd":
-                    # TODO Current implementation is wrong, it should take different noise facotrs (noiseParamsVector_) for production and decay
-                    # Answer to above TODO: not neccessary! 'dpd' is already different than 'spd'
-                    dw_p = np.random.normal(size=len(current_expression))
-                    dw_d = np.random.normal(size=len(current_expression))
-
-                    amplitude_p = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(prod_rate, 0.5))
-                    amplitude_d = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(decay, 0.5))
-
-                    noise = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
-
-                curr_dx = self.dt * (prod_rate - decay) + np.power(self.dt, 0.5) * noise
-
-                delIndices = []
-                for b_idx, gene in enumerate(gene_group):
-                    cell_type = gene.cell_type
-                    assert b_idx == cell_type
-
-                    new_concentration = gene.concentration_history[-1] + curr_dx[b_idx]
-                    gene.append_concentration(new_concentration)
-                    gene.simulated_steps += 1
-
-                    # Check number samples
-                    if len(gene.concentration_history) == num_simulation_steps:
-                        gene.set_scExpression(self.scIndices_)
-                        self.mean_expression[gene_group_id, cell_type] = np.mean(gene.scExpression)
-                        self.levels_to_vertices[level][gIDX][cell_type] = gene
-                        delIndices.append(b_idx)
-
-                to_simulate[gene_idx] = []
-                for j, i in enumerate(gene_group):
-                    if j not in delIndices:
-                        to_simulate[gene_idx].append(i)
-
-                if not to_simulate[gene_idx]:
-                    completed_genes.append(gene_idx)
-
+            completed_genes = self.simulation_step(level, to_simulate, simulation_time)
             to_simulate = [i for j, i in enumerate(to_simulate) if j not in completed_genes]
+            pbar.update(1)
+            simulation_time += 1
+
+    def simulation_step(self, level, to_simulate, simulation_time):
+        completed_genes = []
+        for gene_idx, gene_group in enumerate(to_simulate):
+            gene_group_id = gene_group[0].ID
+            gene_group_level, gIDX = self.gene_id_to_level_and_idx[gene_group_id]
+
+            assert level == gene_group_level
+            self.update_group(completed_genes, gIDX, gene_group, gene_group_id, gene_idx, level, to_simulate, simulation_time)
+        return completed_genes
+
+    def update_group(self, completed_genes, gIDX, gene_group, gene_group_id, gene_idx, level, to_simulate, simulation_time):
+        current_expression = self.system_state[:, gene_group_id, simulation_time]
+        assert current_expression == np.array([gb._concentration_history[-1] for gb in gene_group])
+
+        prod_rate = self.calculate_prod_rate_(gene_group, level)
+        prod_rate = np.array(prod_rate)
+        # Calculate decay rate
+        lambda_ = self.decayVector_[gene_group_id]
+        decay = np.multiply(lambda_, current_expression)
+        # Calculate noise
+
+        noise = self.calculate_noise(len(current_expression), decay, gene_group_id, prod_rate)
+
+        curr_dx = self.dt * (prod_rate - decay) + np.power(self.dt, 0.5) * noise
+        delIndices = []
+        for b_idx, gene in enumerate(gene_group):
+            cell_type = gene.cell_type
+            assert b_idx == cell_type
+            assert gene._concentration_history[-1] == self.system_state[cell_type, gene_group_id, simulation_time]
+
+            new_concentration = self.system_state[cell_type, gene_group_id, simulation_time] + curr_dx[b_idx]
+
+            gene.append_concentration(new_concentration)
+            self.system_state = jax.ops.index_update(self.system_state, jax.ops.index[cell_type, gene_group_id, simulation_time + 1], new_concentration)
+
+            gene.simulated_steps += 1
+
+            # TODO: for the moment all genes evolve in simultaneously so they can't be off sync
+            if len(gene._concentration_history) == self.simulation_length:
+                gene.set_scExpression(self.scIndices_)
+                # self.mean_expression[gene_group_id, cell_type] = np.mean(gene.scExpression)
+                self.mean_expression = jax.ops.index_update(self.mean_expression, jax.ops.index[gene_group_id, cell_type], np.mean(gene.scExpression))
+
+                self.levels_to_vertices[level][gIDX][cell_type] = gene
+                delIndices.append(b_idx)
+        to_simulate[gene_idx] = []
+        for j, i in enumerate(gene_group):
+            if j not in delIndices:
+                to_simulate[gene_idx].append(i)
+        if not to_simulate[gene_idx]:
+            completed_genes.append(gene_idx)
+
+    def calculate_noise(self, size, decay, gene_group_id, prod_rate):
+        if self.noise_type == 'sp':
+            raise NotImplementedError
+            # This notation is inconsistent with our formulation, dw should
+            # include dt^0.5 as well, but here we multipy dt^0.5 later
+            dw = np.random.normal(size=size)
+            amplitude = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(prod_rate, 0.5))
+            noise = np.multiply(amplitude, dw)
+
+        elif self.noise_type == "spd":
+            raise NotImplementedError
+            dw = np.random.normal(size=size)
+            amplitude = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(prod_rate, 0.5) + np.power(decay, 0.5))
+            noise = np.multiply(amplitude, dw)
+
+        elif self.noise_type == "dpd":
+            # TODO Current implementation is wrong, it should take different noise facotrs (noiseParamsVector_) for production and decay
+            # Answer to above TODO: not neccessary! 'dpd' is already different than 'spd'
+            dw_p = np.random.normal(size=size)
+            dw_d = np.random.normal(size=size)
+
+            amplitude_p = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(prod_rate, 0.5))
+            amplitude_d = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(decay, 0.5))
+
+            noise = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
+        return noise
 
     def simulate(self):
         for level in range(self.max_levels, -1, -1):
@@ -498,16 +527,15 @@ class Ducky:
             print("Done with current level")
 
     def getExpressions(self):
-        ret = np.zeros((self.num_cell_types, self.num_genes, self.num_cells))
-        for l in range(self.max_levels + 1):
-            currGeneBins = self.levels_to_vertices[l]
-            for g in currGeneBins:
-                gIdx = g[0].ID
+        ret = onp.zeros((self.num_cell_types, self.num_genes, self.num_cells))
+        for currGeneBins in self.levels_to_vertices.values():
+            for gene_group in currGeneBins:
+                group_id = gene_group[0].ID
 
-                for gb in g:
-                    ret[gb.cell_type, gIdx, :] = gb.scExpression
+                for gb in gene_group:
+                    ret[gb.cell_type, group_id, :] = gb.scExpression
 
-        return ret
+        return np.array(ret)
 
     """""""""""""""""""""""""""""""""""""""
     "" Here is the functionality we need for dynamics simulations
