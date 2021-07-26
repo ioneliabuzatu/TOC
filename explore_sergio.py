@@ -7,7 +7,7 @@ sim.build_graph(input_file_taregts='data/scenic/mouse/interaction_cID.txt',
                 input_file_regs='data/scenic/mouse/Regs_cID_1cell_dummy.txt',
                 shared_coop_state=2)
 sim.simulate()
-expr = sim.getExpressions()
+expr = sim.get_last_state()
 expr_clean = np.concatenate(expr, axis=1)
 
 expr_add_outlier_genes = sim.outlier_effect(expr, outlier_prob=0.01, mean=0.8, scale=1)

@@ -10,13 +10,14 @@ class Gene:
         """
 
         self.ID = geneID
+        # self.global_idx = global_idx
         # self.Type = geneType
         # self.binID = binID
         self.cell_type = binID
         assert geneType in ("MR", "T")
         self.is_master_regulator = geneType == "MR"
 
-        self._concentration_history = []
+        self.__concentration_history = []
         self.Conc_S = []
         self.dConc = []
         self.k = []  # For dynamics simulation it stores k1 to k4 for Rung-Kutta method, list of size 4 * num_c_to_evolve
@@ -38,6 +39,10 @@ class Gene:
     @property
     def concentration_history(self):
         raise Exception("use system_state")
+
+    @property
+    def _concentration_history(self):
+        return self.__concentration_history
 
     def append_concentration(self, current_concentration):
         if current_concentration < 0:
