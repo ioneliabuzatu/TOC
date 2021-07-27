@@ -1,4 +1,5 @@
 """ Adjacencies columns are in order of {TF \tab Target \tab Importance} """
+import json
 import numpy as np
 
 
@@ -9,13 +10,13 @@ def create_txt_file_for_sergio_from_scenic(adjacencies: np.ndarray, save_txt_fil
         np.save("../data/scenic/mouse/GSE133382.adjacencies.trimmed.npy", adjacencies)
 
     tot_unique_ids = unique_ids(adjacencies)
-    print(f"Found unique TFs/genes {len(tot_unique_ids)}.")
 
     genes_ids_to_names_mapping = {k: v for v, k in enumerate(tot_unique_ids)}
+    save_gene_ids_to_their_name_dict(genes_ids_to_names_mapping, save_txt_filepath)
 
     grouped_target_genes_dict = group_genes_to_transcription_factor_in_dict(adjacencies)
 
-    parse_dict_target_tf(grouped_target_genes_dict, save_txt_filepath, tot_unique_ids)
+    parse_dict_target_tf(grouped_target_genes_dict, save_txt_filepath, genes_ids_to_names_mapping)
 
     print("Done formatting pySCENIC GRN to SERGIO format.")
 
@@ -31,14 +32,19 @@ def unique_ids(adjacencies) -> np.ndarray:
     tfs_set = np.unique(adjacencies[:, 0].flatten())
     target_genes_set = np.unique(adjacencies[:, 1].flatten())
 
-    tot_ids_with_replicates = np.zeros(len(tfs_set) + len(target_genes_set))
+    tot_ids_with_replicates = np.zeros(len(tfs_set) + len(target_genes_set), dtype=object)
     tot_ids_with_replicates[:len(tfs_set)] = tfs_set
-    tot_ids_with_replicates[:len(target_genes_set)] = target_genes_set
+    tot_ids_with_replicates[len(tfs_set):] = target_genes_set
 
     tot_unique_ids = np.unique(tot_ids_with_replicates)
 
     print(f"Found unique TFs/genes {len(tot_unique_ids)}.")
     return tot_unique_ids
+
+
+def save_gene_ids_to_their_name_dict(genes_ids_to_their_names_dict, filepath_to_save):
+    with open(f"{filepath_to_save}.json", "w") as file:
+        json.dump(genes_ids_to_their_names_dict, file)
 
 
 def group_genes_to_transcription_factor_in_dict(adjacencies: np.ndarray) -> dict:
