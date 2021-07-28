@@ -297,7 +297,7 @@ class Ducky:
                     regIdx = interTuple[0]
                     mean_expression = self.mean_expression[regIdx]
 
-                    if set(mean_expression) == set([-1]):
+                    if np.all(mean_expression == -1):
                         raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
 
                     self.graph_[gene_group_id]['params'][c] = (*self.graph_[gene_group_id]['params'][c][:3], np.mean(mean_expression))
