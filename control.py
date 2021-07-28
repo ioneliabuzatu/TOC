@@ -25,7 +25,6 @@ def main_control_steady_state():
 
     def loss_fn(actions):
         expr = env.simulate(actions)
-        print(expr)
         return -np.mean(np.sum(np.power(expr, 2), axis=1))
 
     actions = np.zeros((env.sampling_state_ * env.nSC_, env.nBins_, env.nGenes_))
