@@ -1,15 +1,15 @@
+import time
 import numpy as np
 from SERGIO.SERGIO.sergio import sergio
 import pandas as pd
 
 
 def steady_state():
-    global sim
-    sim = sergio(number_genes=100, number_bins=9, number_sc=30, noise_params=1, decays=0.8, sampling_state=15,
+    sim = sergio(number_genes=100, number_bins=2, number_sc=10, noise_params=1, decays=0.8, sampling_state=15,
                  noise_type='dpd')
-    sim.build_graph(input_file_taregts='SERGIO/data_sets/De-noised_100G_9T_300cPerT_4_DS1/Interaction_cID_4.txt',
-                    input_file_regs='SERGIO/data_sets/De-noised_100G_9T_300cPerT_4_DS1/Regs_cID_4.txt',
-                    shared_coop_state=2)
+    sim.build_graph(input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4"
+                                       ".txt",
+                    input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",
     sim.simulate()
     expr = sim.getExpressions()
     expr_clean = np.concatenate(expr, axis=1)
@@ -26,7 +26,6 @@ def steady_state():
 
 
 def differentiated_states():
-    global sim
     df = pd.read_csv('SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/bMat_cID7.tab', sep='\t', header=None,
                      index_col=None)
     bMat = df.values
@@ -43,5 +42,8 @@ def differentiated_states():
     print(exprU.shape, exprU_clean.shape, exprS_clean.shape)
 
 
-# steady_state()
-differentiated_states()
+if __name__ == "__main__":
+    start = time.time()
+    steady_state()
+    # differentiated_states()
+    print(f"Took {time.time()-start:.4f} sec.")

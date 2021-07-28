@@ -12,3 +12,4 @@ MulticoreTSNE
 -e git+https://github.com/ministry-of-silly-code/experiment_buddy.git#egg=experiment_buddy
 cytoolz
 pyscenic
+jax

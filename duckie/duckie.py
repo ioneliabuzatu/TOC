@@ -61,7 +61,7 @@ class Ducky:
         self.simulation_length = self.sampling_state_ * self.num_cells
 
         # TODO: This should be a list of self.simulation_length x (self.num_cell_types, self.num_genes)
-        self.system_state = np.zeros((self.num_cell_types, self.num_genes, self.simulation_length))
+        self.system_state = np.zeros((self.num_cell_types, self.num_genes, self.simulation_length + 1))  # +1 is due to the extra intial  state
 
         self.mean_expression = -1 * np.ones((number_genes, number_gene_types))
         self.noise_type = noise_type
@@ -297,9 +297,8 @@ class Ducky:
                     regIdx = interTuple[0]
                     mean_expression = self.mean_expression[regIdx]
 
-                    if set(mean_expression) == set([-1]):
-                        print("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
-                        sys.exit()
+                    if np.all(mean_expression == -1):
+                        raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
 
                     self.graph_[gene_group_id]['params'][c] = (*self.graph_[gene_group_id]['params'][c][:3], np.mean(mean_expression))
                     c += 1
@@ -319,8 +318,8 @@ class Ducky:
 
         num = np.power(reg_conc.T, coop_state)
         denom = np.power(half_response.T, coop_state) + num
-
         response = np.true_divide(num, denom)
+
         is_active = reg_conc.astype(bool)
         response = jax.ops.index_update(response, jax.ops.index[:, repressive], 1 - response[:, repressive])
         # return response * is_active + repressive * (~is_active)
@@ -360,7 +359,7 @@ class Ducky:
                 gene_group_rates = self.graph_[gene_group_id]['rates']
                 decayed_gene_group_rates = np.true_divide(gene_group_rates, group_decay_rate)
 
-                self.system_state = jax.ops.index_update(self.system_state, jax.ops.index[:, gene_group_id, 0], decayed_gene_group_rates)
+                self.update_state(gene_group_id, 0, decayed_gene_group_rates)
 
                 for cell_type_idx, rate in enumerate(decayed_gene_group_rates):
                     gene_group[cell_type_idx].append_concentration(rate)
@@ -377,8 +376,16 @@ class Ducky:
                 cell_type_concentration = np.true_divide(rates, group_decay_rate)
                 total_cell_type_concentration = cell_type_concentration.sum(1)
 
+                self.update_state(gene_group_id, 0, total_cell_type_concentration)
+
                 for cell_type_idx in range(self.num_cell_types):
                     gene_group[cell_type_idx].append_concentration(total_cell_type_concentration[cell_type_idx])
+
+    def update_state(self, gene_group_id, time, concentration):
+        # self.system_state = jax.ops.index_update(self.system_state, jax.ops.index[:, gene_group_id, simulation_time + 1], new_concentration)
+        assert 0 <= time <= self.simulation_length
+        concentration = np.clip(concentration, a_min=0)
+        self.system_state = jax.ops.index_update(self.system_state, jax.ops.index[:, gene_group_id, time], concentration)
 
     def calculate_prod_rate_(self, gene_group, level):
         """
@@ -405,22 +412,24 @@ class Ducky:
             params = np.array(params)
             Ks = np.abs(params[:, 1])
 
-            for tupleIdx, rIdx in enumerate(regIndices):
-                x0.append([])
-                regGeneLevel, regGeneIdx = self.gene_id_to_level_and_idx[rIdx]
+            for tupleIdx, gene_group_id in enumerate(regIndices):
+                # x0.append([])
+                regGeneLevel, regGeneIdx = self.gene_id_to_level_and_idx[gene_group_id]
                 regGene_allBins = self.levels_to_vertices[regGeneLevel][regGeneIdx]
 
                 # x0 = []
-                for colIdx, bIdx in enumerate(cell_types):
-                    x0_i = regGene_allBins[bIdx].concentration_history[currStep]
-                    x0[-1].append(x0_i)
+                x0 = self.system_state[:, gene_group_id, currStep]
+                for colIdx, gene_type in enumerate(cell_types):
+                    x0_i = x0[gene_type]
+                    assert x0_i == regGene_allBins[gene_type]._concentration_history[currStep]
+                    # x0[-1].append(x0_i)
                     # x0.append(x0_i)
                 # x0 = np.array(x0)
 
-                for colIdx, bIdx in enumerate(cell_types):
-                    assert colIdx == bIdx
+                for colIdx, gene_type in enumerate(cell_types):
+                    assert colIdx == gene_type
 
-            x0 = np.array(x0)
+            x0 = np.array(x0).reshape(1, -1)
             hillMatrix = self.hill(x0, params)
             return np.matmul(Ks, hillMatrix.T)
 
@@ -444,16 +453,15 @@ class Ducky:
     def simulation_step(self, level, to_simulate, simulation_time):
         completed_genes = []
         for gene_idx, gene_group in enumerate(to_simulate):
-            gene_group_id = gene_group[0].ID
-            gene_group_level, gIDX = self.gene_id_to_level_and_idx[gene_group_id]
-
-            assert level == gene_group_level
-            self.update_group(completed_genes, gIDX, gene_group, gene_group_id, gene_idx, level, to_simulate, simulation_time)
+            self.update_group(completed_genes, gene_group, gene_idx, level, to_simulate, simulation_time)
         return completed_genes
 
-    def update_group(self, completed_genes, gIDX, gene_group, gene_group_id, gene_idx, level, to_simulate, simulation_time):
+    def update_group(self, completed_genes, gene_group, gene_idx, level, to_simulate, simulation_time):
+        gene_group_id = gene_group[0].ID
+        gene_group_level, gIDX = self.gene_id_to_level_and_idx[gene_group_id]
+
         current_expression = self.system_state[:, gene_group_id, simulation_time]
-        assert current_expression == np.array([gb._concentration_history[-1] for gb in gene_group])
+        assert np.all(current_expression == np.array([gb._concentration_history[-1] for gb in gene_group]))
 
         prod_rate = self.calculate_prod_rate_(gene_group, level)
         prod_rate = np.array(prod_rate)
@@ -465,27 +473,31 @@ class Ducky:
         noise = self.calculate_noise(len(current_expression), decay, gene_group_id, prod_rate)
 
         curr_dx = self.dt * (prod_rate - decay) + np.power(self.dt, 0.5) * noise
+        new_concentration = self.system_state[:, gene_group_id, simulation_time] + curr_dx + self.actions[simulation_time, :, gene_group_id]
+        self.update_state(gene_group_id, simulation_time + 1, new_concentration)
+
         delIndices = []
+
         for b_idx, gene in enumerate(gene_group):
             cell_type = gene.cell_type
             assert b_idx == cell_type
             assert gene._concentration_history[-1] == self.system_state[cell_type, gene_group_id, simulation_time]
 
-            new_concentration = self.system_state[cell_type, gene_group_id, simulation_time] + curr_dx[b_idx]
-
-            gene.append_concentration(new_concentration)
-            self.system_state = jax.ops.index_update(self.system_state, jax.ops.index[cell_type, gene_group_id, simulation_time + 1], new_concentration)
-
+            gene.append_concentration(new_concentration[cell_type])
             gene.simulated_steps += 1
 
             # TODO: for the moment all genes evolve in simultaneously so they can't be off sync
+            assert len(gene._concentration_history) <= self.simulation_length
             if len(gene._concentration_history) == self.simulation_length:
-                gene.set_scExpression(self.scIndices_)
+                if __debug__:
+                    gene.scExpression = self.system_state[cell_type, gene_group_id, self.scIndices_]
+                # gene.set_scExpression(self.scIndices_)
                 # self.mean_expression[gene_group_id, cell_type] = np.mean(gene.scExpression)
                 self.mean_expression = jax.ops.index_update(self.mean_expression, jax.ops.index[gene_group_id, cell_type], np.mean(gene.scExpression))
 
                 self.levels_to_vertices[level][gIDX][cell_type] = gene
                 delIndices.append(b_idx)
+
         to_simulate[gene_idx] = []
         for j, i in enumerate(gene_group):
             if j not in delIndices:
@@ -520,22 +532,25 @@ class Ducky:
             noise = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
         return noise
 
-    def simulate(self):
+    def simulate(self, actions):
+        self.actions = actions
         for level in range(self.max_levels, -1, -1):
             print("Start simulating new level")
             self.CLE_simulator_(level)
             print("Done with current level")
 
-    def getExpressions(self):
-        ret = onp.zeros((self.num_cell_types, self.num_genes, self.num_cells))
-        for currGeneBins in self.levels_to_vertices.values():
-            for gene_group in currGeneBins:
-                group_id = gene_group[0].ID
+    def get_last_state(self):
+        if __debug__:
+            ret = onp.zeros((self.num_cell_types, self.num_genes, self.num_cells))
+            for currGeneBins in self.levels_to_vertices.values():
+                for gene_group in currGeneBins:
+                    group_id = gene_group[0].ID
 
-                for gb in gene_group:
-                    ret[gb.cell_type, group_id, :] = gb.scExpression
+                    for gb in gene_group:
+                        ret[gb.cell_type, group_id, :] = gb.scExpression
 
-        return np.array(ret)
+        assert np.all(self.system_state[:, :, self.scIndices_] == np.array(ret))
+        return self.system_state[:, :, -1]
 
     """""""""""""""""""""""""""""""""""""""
     "" Here is the functionality we need for dynamics simulations
@@ -672,7 +687,7 @@ class Ducky:
         else:
             nConverged = 0
             for g in self.binDict[binID]:
-                if g.converged_ == False:
+                if not g.converged_:
                     currConc = [g.concentration_history[i][-10:] for i in range(num_init_cells)]
                     meanU = np.mean(currConc, axis=1)
                     errU = np.abs(meanU - g.ss_U_)
@@ -687,8 +702,7 @@ class Ducky:
                             g.setConverged()
                             break
 
-
-                elif g.converged_S_ == False:
+                elif not g.converged_S_:
                     currConc = [g.Conc_S[i][-10:] for i in range(num_init_cells)]
                     meanS = np.mean(currConc, axis=1)
                     errS = np.abs(meanS - g.ss_S_)
