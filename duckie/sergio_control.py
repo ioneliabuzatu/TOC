@@ -1,3 +1,4 @@
+import jax.ops
 import numpy as onp
 from SERGIO.SERGIO.gene import gene
 from scipy.stats import ttest_rel, ttest_ind, ranksums
@@ -5,12 +6,15 @@ import sys
 import csv
 import networkx as nx
 from scipy.stats import wasserstein_distance
+
+
 import jax.numpy as np
 
 np.int = int
 np.float = float
 np.random = onp.random
 np.copy = onp.copy
+
 
 class sergio (object):
 
@@ -334,9 +338,9 @@ class sergio (object):
                     regIdx = interTuple[0]
                     meanArr = self.meanExpression[regIdx]
 
-                    if set(meanArr) == set([-1]):
-                        print ("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
-                        sys.exit()
+                    if np.all(meanArr == -1):
+                        raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more "
+                           "genes in previous layer was not modeled.")
 
                     self.graph_[g[0].ID]['params'][c] = (self.graph_[g[0].ID]['params'][c][0], self.graph_[g[0].ID]['params'][c][1], self.graph_[g[0].ID]['params'][c][2], np.mean(meanArr))
                     c += 1
@@ -397,7 +401,7 @@ class sergio (object):
 
         else:
             params = self.graph_[bin_list[0].ID]['params']
-            Ks = [np.abs(t[1]) for t in params]
+            Ks = np.array([np.abs(t[1]) for t in params])
             regIndices = [t[0] for t in params]
             binIndices = [gb.binID for gb in bin_list]
             currStep = bin_list[0].simulatedSteps_
@@ -405,12 +409,15 @@ class sergio (object):
             hillMatrix = np.zeros((len(regIndices), len(binIndices)))
 
             for tupleIdx, rIdx in enumerate(regIndices):
-		#print "Here"
                 regGeneLevel = self.gID_to_level_and_idx[rIdx][0]
                 regGeneIdx = self.gID_to_level_and_idx[rIdx][1]
                 regGene_allBins = self.level2verts_[regGeneLevel][regGeneIdx]
                 for colIdx, bIdx in enumerate(binIndices):
-                    hillMatrix[tupleIdx, colIdx] = self.hill_(regGene_allBins[bIdx].Conc[currStep], params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
+                    new_state_concentration_gene = self.hill_(regGene_allBins[bIdx].Conc[currStep], params[tupleIdx][3],
+                                                              params[tupleIdx][2], params[tupleIdx][1] < 0)
+                    hillMatrix = jax.ops.index_update(
+                        hillMatrix, jax.ops.index[tupleIdx, colIdx], new_state_concentration_gene
+                    )
 
             return np.matmul(Ks, hillMatrix)
 
@@ -439,10 +446,11 @@ class sergio (object):
                 if level != gLevel:
                     sys.exit()
                 #################
-                currExp = [gb.Conc[-1] for gb in g]
+                currExp = np.array([gb.Conc[-1] for gb in g], dtype=np.float32)
+                assert len(currExp) == self.nBins_
 
                 #Calculate production rate
-                prod_rate = self.calculate_prod_rate_ (g, level) # 1 * #currBins
+                prod_rate = np.array(self.calculate_prod_rate_ (g, level))# 1 * #currBins
 
                 #Calculate decay rate
                 decay = np.multiply(self.decayVector_[gID], currExp)
@@ -453,34 +461,33 @@ class sergio (object):
                     # This notation is inconsistent with our formulation, dw should
                     #include dt^0.5 as well, but here we multipy dt^0.5 later
                     dw = np.random.normal(size = len(currExp))
-                    amplitude = np.multiply (self.noiseParamsVector_[gID] , np.power(prod_rate, 0.5))
+                    amplitude = np.multiply (self.noiseParamsVector_[gID], np.power(prod_rate, 0.5))
                     noise = np.multiply(amplitude, dw)
 
                 elif self.noiseType_ == "spd":
                     dw = np.random.normal(size = len(currExp))
-                    amplitude = np.multiply (self.noiseParamsVector_[gID] , np.power(prod_rate, 0.5) + np.power(decay, 0.5))
+                    amplitude = np.multiply (self.noiseParamsVector_[gID], np.power(prod_rate, 0.5) + np.power(decay, 0.5))
                     noise = np.multiply(amplitude, dw)
-
 
                 elif self.noiseType_ == "dpd":
                     #TODO Current implementation is wrong, it should take different noise facotrs (noiseParamsVector_) for production and decay
                     #Answer to above TODO: not neccessary! 'dpd' is already different than 'spd'
-                    dw_p = np.random.normal(size = len(currExp))
-                    dw_d = np.random.normal(size = len(currExp))
+                    dw_p = np.random.normal(size=len(currExp))
+                    dw_d = np.random.normal(size=len(currExp))
 
-                    amplitude_p = np.multiply (self.noiseParamsVector_[gID] , np.power(prod_rate, 0.5))
-                    amplitude_d = np.multiply (self.noiseParamsVector_[gID] , np.power(decay, 0.5))
+                    amplitude_p = np.multiply(self.noiseParamsVector_[gID] , np.power(prod_rate, 0.5))
+                    amplitude_d = np.multiply(self.noiseParamsVector_[gID] , np.power(decay, 0.5))
 
                     noise = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
 
-
-
-                curr_dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise
+                # curr_dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[0, :, gID]
 
                 delIndices = []
                 for bIDX, gObj in enumerate(g):
                     binID = gObj.binID
-                    #print gObj.Conc
+                    gene_time_step = gObj.simulatedSteps_
+                    curr_dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[gene_time_step, :,
+                                                                                                 gID]
                     gObj.append_Conc(gObj.Conc[-1] + curr_dx[bIDX])
                     gObj.incrementStep()
 
@@ -514,7 +521,8 @@ class sergio (object):
                     #if (gObj.converged_ and len(gObj.Conc) == self.calculate_required_steps_(level)):
                     if len(gObj.Conc) == nReqSteps:
                         gObj.set_scExpression(self.scIndices_)
-                        self.meanExpression [gID, binID] = np.mean(gObj.scExpression)
+                        self.meanExpression = jax.ops.index_update(
+                            self.meanExpression, jax.ops.index[gID, binID],  np.mean(gObj.scExpression))
                         self.level2verts_[level][gIDX][binID] = gObj
                         delIndices.append(bIDX)
 
@@ -528,9 +536,9 @@ class sergio (object):
     def simulate(self, actions):
         self.actions = actions
         for level in range(self.maxLevels_, -1, -1):
-            print ("Start simulating new level")
+            print("Start simulating new level")
             self.CLE_simulator_(level)
-            print ("Done with current level")
+            print("Done with current level")
         return self.getExpressions()
 
     def getExpressions(self):
@@ -541,7 +549,7 @@ class sergio (object):
                 gIdx = g[0].ID
 
                 for gb in g:
-                    ret[gb.binID, gIdx, :] = gb.scExpression
+                    ret = jax.ops.index_update(ret, jax.ops.index[gb.binID, gIdx, :], gb.scExpression)
 
         return ret
 
