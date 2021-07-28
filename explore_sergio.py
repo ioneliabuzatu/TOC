@@ -10,7 +10,6 @@ def steady_state():
     sim.build_graph(input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4"
                                        ".txt",
                     input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",
-                    shared_coop_state=2)
     sim.simulate()
     expr = sim.getExpressions()
     expr_clean = np.concatenate(expr, axis=1)
