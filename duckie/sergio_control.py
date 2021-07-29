@@ -7,12 +7,11 @@ import csv
 import networkx as nx
 from scipy.stats import wasserstein_distance
 
-import jax.numpy as np
-
-np.int = int
-np.float = float
-np.random = onp.random
-np.copy = onp.copy
+import jax.numpy as jnp
+jnp.int = int
+jnp.float = float
+jnp.random = onp.random
+jnp.copy = onp.copy
 
 
 class sergio(object):
@@ -59,17 +58,17 @@ class sergio(object):
         self.gID_to_level_and_idx = {}  # This dictionary gives the level and idx in self.level2verts_ of a given gene ID
         self.binDict = {}  # This maps bin ID to list of gene objects in that bin; only used for dynamics simulations
         self.maxLevels_ = 0
-        self.init_concs_ = np.zeros((number_genes, number_bins))
-        self.meanExpression = -1 * np.ones((number_genes, number_bins))
+        self.init_concs_ = jnp.zeros((number_genes, number_bins))
+        self.meanExpression = -1 * jnp.ones((number_genes, number_bins))
         self.noiseType_ = noise_type
         self.dyn_ = dynamics
-        self.nConvSteps = np.zeros(number_bins)  # This holds the number of simulated steps till convergence
+        self.nConvSteps = jnp.zeros(number_bins)  # This holds the number of simulated steps till convergence
         if dynamics:
-            self.bifurcationMat_ = np.array(bifurcation_matrix)
+            self.bifurcationMat_ = jnp.array(bifurcation_matrix)
             self.binOrders_ = []
             self.binDict = {}
             for b in range(self.nBins_):
-                self.binDict[b] = np.zeros(self.nGenes_, ).tolist()
+                self.binDict[b] = jnp.zeros(self.nGenes_, ).tolist()
         ############
         # This graph stores for each vertex: parameters(interaction
         # parameters for non-master regulators and production rates for master
@@ -77,16 +76,16 @@ class sergio(object):
         ############
         self.graph_ = {}
 
-        if np.isscalar(noise_params):
-            self.noiseParamsVector_ = np.repeat(noise_params, number_genes)
-        elif np.shape(noise_params)[0] == number_genes:
+        if jnp.isscalar(noise_params):
+            self.noiseParamsVector_ = jnp.repeat(noise_params, number_genes)
+        elif jnp.shape(noise_params)[0] == number_genes:
             self.noiseParamsVector_ = noise_params
         else:
             raise Exception("Error: expect one noise parameter per gene")
 
-        if np.isscalar(decays) == 1:
-            self.decayVector_ = np.repeat(decays, number_genes)
-        elif np.shape(decays)[0] == number_genes:
+        if jnp.isscalar(decays) == 1:
+            self.decayVector_ = jnp.repeat(decays, number_genes)
+        elif jnp.shape(decays)[0] == number_genes:
             self.decayVector_ = decays
         else:
             raise Exception("Error: expect one decay parameter per gene")
@@ -102,22 +101,22 @@ class sergio(object):
                 self.noiseTypeSp_ = noise_type_splice
 
             if dt_splice == None:
-                self.dtSp_ = np.copy(self.dt_)
+                self.dtSp_ = jnp.copy(self.dt_)
             else:
                 self.dtSp_ = dt_splice
 
             if noise_params_splice == None:
-                self.noiseParamsVectorSp_ = np.copy(self.noiseParamsVector_)
-            elif np.isscalar(noise_params_splice):
-                self.noiseParamsVectorSp_ = np.repeat(noise_params_splice, number_genes)
-            elif np.shape(noise_params_splice)[0] == number_genes:
+                self.noiseParamsVectorSp_ = jnp.copy(self.noiseParamsVector_)
+            elif jnp.isscalar(noise_params_splice):
+                self.noiseParamsVectorSp_ = jnp.repeat(noise_params_splice, number_genes)
+            elif jnp.shape(noise_params_splice)[0] == number_genes:
                 self.noiseParamsVectorSp_ = noise_params_splice
             else:
                 raise Exception("Error: expect one splicing noise parameter per gene")
 
-            if np.isscalar(splice_ratio):
-                self.ratioSp_ = np.repeat(splice_ratio, number_genes)
-            elif np.shape(splice_ratio)[0] == number_genes:
+            if jnp.isscalar(splice_ratio):
+                self.ratioSp_ = jnp.repeat(splice_ratio, number_genes)
+            elif jnp.shape(splice_ratio)[0] == number_genes:
                 self.ratioSp_ = splice_ratio
             else:
                 raise Exception("Error: expect one splicing ratio parameter per gene")
@@ -152,7 +151,7 @@ class sergio(object):
             reader = csv.reader(f, delimiter=',')
             if (shared_coop_state <= 0):
                 for row in reader:
-                    nRegs = np.int(row[1])
+                    nRegs = jnp.int(row[1])
                     ##################### Raise Error ##########################
                     if nRegs == 0:
                         raise Exception("Error: a master regulator (#Regs = 0) appeared in input")
@@ -161,23 +160,23 @@ class sergio(object):
                     currParents = []
                     for regId, K, C_state in zip(row[2: 2 + nRegs], row[2 + nRegs: 2 + 2 * nRegs],
                                                  row[2 + 2 * nRegs: 2 + 3 * nRegs]):
-                        currInteraction.append((np.int(regId), np.float(K), np.float(C_state),
+                        currInteraction.append((jnp.int(regId), jnp.float(K), jnp.float(C_state),
                                                 0))  # last zero shows half-response, it is modified in another method
-                        allRegs.append(np.int(regId))
-                        currParents.append(np.int(regId))
-                        self.graph_[np.int(regId)]['targets'].append(np.int(row[0]))
+                        allRegs.append(jnp.int(regId))
+                        currParents.append(jnp.int(regId))
+                        self.graph_[jnp.int(regId)]['targets'].append(jnp.int(row[0]))
 
-                    self.graph_[np.int(row[0])]['params'] = currInteraction
-                    self.graph_[np.int(row[0])]['regs'] = currParents
-                    self.graph_[np.int(row[0])]['level'] = -1  # will be modified later
-                    allTargets.append(np.int(row[0]))
+                    self.graph_[jnp.int(row[0])]['params'] = currInteraction
+                    self.graph_[jnp.int(row[0])]['regs'] = currParents
+                    self.graph_[jnp.int(row[0])]['level'] = -1  # will be modified later
+                    allTargets.append(jnp.int(row[0]))
 
                     # if self.dyn_:
                     #    for b in range(self.nBins_):
                     #        binDict[b].append(gene(np.int(row[0]),'T', b))
             else:
                 for indRow, row in enumerate(reader):
-                    nRegs = np.int(np.float(row[1]))
+                    nRegs = jnp.int(jnp.float(row[1]))
                     ##################### Raise Error ##########################
                     if nRegs == 0:
                         print("Error: a master regulator (#Regs = 0) appeared in input")
@@ -187,16 +186,16 @@ class sergio(object):
                     currInteraction = []
                     currParents = []
                     for regId, K, in zip(row[2: 2 + nRegs], row[2 + nRegs: 2 + 2 * nRegs]):
-                        currInteraction.append((np.int(np.float(regId)), np.float(K), shared_coop_state,
+                        currInteraction.append((jnp.int(jnp.float(regId)), jnp.float(K), shared_coop_state,
                                                 0))  # last zero shows half-response, it is modified in another method
-                        allRegs.append(np.int(np.float(regId)))
-                        currParents.append(np.int(np.float(regId)))
-                        self.graph_[np.int(np.float(regId))]['targets'].append(np.int(np.float(row[0])))
+                        allRegs.append(jnp.int(jnp.float(regId)))
+                        currParents.append(jnp.int(jnp.float(regId)))
+                        self.graph_[jnp.int(jnp.float(regId))]['targets'].append(jnp.int(jnp.float(row[0])))
 
-                    self.graph_[np.int(np.float(row[0]))]['params'] = currInteraction
-                    self.graph_[np.int(np.float(row[0]))]['regs'] = currParents
-                    self.graph_[np.int(np.float(row[0]))]['level'] = -1  # will be modified later
-                    allTargets.append(np.int(np.float(row[0])))
+                    self.graph_[jnp.int(jnp.float(row[0]))]['params'] = currInteraction
+                    self.graph_[jnp.int(jnp.float(row[0]))]['regs'] = currParents
+                    self.graph_[jnp.int(jnp.float(row[0]))]['level'] = -1  # will be modified later
+                    allTargets.append(jnp.int(jnp.float(row[0])))
 
                     # if self.dyn_:
                     #    for b in range(self.nBins_):
@@ -208,11 +207,11 @@ class sergio(object):
             masterRegs = []
             reader = csv.reader(f, delimiter=',')
             for row in reader:
-                if np.shape(row)[0] != self.nBins_ + 1:
+                if jnp.shape(row)[0] != self.nBins_ + 1:
                     raise Exception("Error: Inconsistent number of bins")
 
                 masterRegs.append(int(float(row[0])))
-                self.graph_[int(float(row[0]))]['rates'] = [np.float(i) for i in row[1:]]
+                self.graph_[int(float(row[0]))]['rates'] = [jnp.float(i) for i in row[1:]]
                 self.graph_[int(float(row[0]))]['regs'] = []
                 self.graph_[int(float(row[0]))]['level'] = -1
 
@@ -222,7 +221,7 @@ class sergio(object):
 
         self.master_regulators_idx_ = set(masterRegs)
 
-        if (len(self.master_regulators_idx_) + np.shape(allTargets)[0] != self.nGenes_):
+        if (len(self.master_regulators_idx_) + jnp.shape(allTargets)[0] != self.nGenes_):
             raise Exception("Error: Inconsistent number of genes")
 
         self.find_levels_(self.graph_)  # make sure that this modifies the graph
@@ -292,11 +291,11 @@ class sergio(object):
         """
 
         if self.optimize_sampling_:
-            state = np.true_divide(30000 - safety_steps * self.maxLevels_, self.nSC_)
+            state = jnp.true_divide(30000 - safety_steps * self.maxLevels_, self.nSC_)
             if state < self.sampling_state_:
                 self.sampling_state_ = state
 
-        self.scIndices_ = np.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
+        self.scIndices_ = jnp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
 
     def calculate_required_steps_(self, level, safety_steps=0):
         """
@@ -322,14 +321,14 @@ class sergio(object):
                     regIdx = interTuple[0]
                     meanArr = self.meanExpression[regIdx]
 
-                    if np.all(meanArr == -1):
+                    if jnp.all(meanArr == -1):
                         raise Exception(
                             "Error: Something's wrong in either layering or simulation. Expression of one or more "
                             "genes in previous layer was not modeled.")
 
                     self.graph_[g[0].ID]['params'][c] = (
                         self.graph_[g[0].ID]['params'][c][0], self.graph_[g[0].ID]['params'][c][1],
-                        self.graph_[g[0].ID]['params'][c][2], np.mean(meanArr))
+                        self.graph_[g[0].ID]['params'][c][2], jnp.mean(meanArr))
                     c += 1
             # Else: g is a master regulator and does not need half response
 
@@ -346,11 +345,11 @@ class sergio(object):
                 return 0
         else:
             if repressive:
-                return 1 - np.true_divide(np.power(reg_conc, coop_state),
-                                          (np.power(half_response, coop_state) + np.power(reg_conc, coop_state)))
+                return 1 - jnp.true_divide(jnp.power(reg_conc, coop_state),
+                                          (jnp.power(half_response, coop_state) + jnp.power(reg_conc, coop_state)))
             else:
-                return np.true_divide(np.power(reg_conc, coop_state),
-                                      (np.power(half_response, coop_state) + np.power(reg_conc, coop_state)))
+                return jnp.true_divide(jnp.power(reg_conc, coop_state),
+                                      (jnp.power(half_response, coop_state) + jnp.power(reg_conc, coop_state)))
 
     def init_gene_bin_conc_(self, level):
         """
@@ -365,7 +364,7 @@ class sergio(object):
                 allBinRates = self.graph_[g[0].ID]['rates']
 
                 for bIdx, rate in enumerate(allBinRates):
-                    g[bIdx].append_Conc(np.true_divide(rate, self.decayVector_[g[0].ID]))
+                    g[bIdx].append_Conc(jnp.true_divide(rate, self.decayVector_[g[0].ID]))
 
             else:
                 params = self.graph_[g[0].ID]['params']
@@ -374,10 +373,10 @@ class sergio(object):
                     rate = 0
                     for interTuple in params:
                         meanExp = self.meanExpression[interTuple[0], bIdx]
-                        rate += np.abs(interTuple[1]) * self.hill_(meanExp, interTuple[3], interTuple[2],
+                        rate += jnp.abs(interTuple[1]) * self.hill_(meanExp, interTuple[3], interTuple[2],
                                                                    interTuple[1] < 0)
 
-                    g[bIdx].append_Conc(np.true_divide(rate, self.decayVector_[g[0].ID]))
+                    g[bIdx].append_Conc(jnp.true_divide(rate, self.decayVector_[g[0].ID]))
 
     def calculate_prod_rate_(self, bin_list, level):
         """
@@ -391,12 +390,12 @@ class sergio(object):
 
         else:
             params = self.graph_[bin_list[0].ID]['params']
-            Ks = np.array([np.abs(t[1]) for t in params])
+            Ks = jnp.array([jnp.abs(t[1]) for t in params])
             regIndices = [t[0] for t in params]
             binIndices = [gb.binID for gb in bin_list]
             currStep = bin_list[0].simulatedSteps_
-            lastLayerGenes = np.copy(self.level2verts_[level + 1])
-            hillMatrix = np.zeros((len(regIndices), len(binIndices)))
+            lastLayerGenes = jnp.copy(self.level2verts_[level + 1])
+            hillMatrix = jnp.zeros((len(regIndices), len(binIndices)))
 
             for tupleIdx, rIdx in enumerate(regIndices):
                 regGeneLevel = self.gID_to_level_and_idx[rIdx][0]
@@ -409,23 +408,22 @@ class sergio(object):
                         hillMatrix, jax.ops.index[tupleIdx, colIdx], new_state_concentration_gene
                     )
 
-            return np.matmul(Ks, hillMatrix)
+            return jnp.matmul(Ks, hillMatrix)
 
     def CLE_simulator_(self, level):
 
         self.calculate_half_response_(level)
         self.init_gene_bin_conc_(level)
         nReqSteps = self.calculate_required_steps_(level)
-        sim_set = np.copy(self.level2verts_[level]).tolist()
+        sim_set = jnp.copy(self.level2verts_[level]).tolist()
         print("There are " + str(len(sim_set)) + " genes to simulate in this layer")
 
-        while sim_set != []:
-            nRemainingG = len(sim_set)
-            if nRemainingG % 10 == 0:
-                # print "\t Still " + str(nRemainingG) + " genes to simulate"
+        while sim_set:
+            if len(sim_set) % 10 == 0:
+                # print "\t Still " + str(len(sim_set) + " genes to simulate"
                 sys.stdout.flush()
 
-            delIndicesGenes = []
+            sim_set_keep_genes = []
             for gi, g in enumerate(sim_set):
                 gID = g[0].ID
                 gLevel = self.gID_to_level_and_idx[gID][0]
@@ -434,68 +432,61 @@ class sergio(object):
                 if level != gLevel:
                     raise Exception(f"level is not the same as gLevel: f{level}!={gLevel}")
 
-                currExp = np.array([gb.Conc[-1] for gb in g], dtype=np.float32)
+                currExp = jnp.array([gb.Conc[-1] for gb in g], dtype=jnp.float32)
                 assert len(currExp) == self.nBins_
 
-                # Calculate production rate
-                prod_rate = np.array(self.calculate_prod_rate_(g, level))  # 1 * #currBins
+                production_rate = jnp.array(self.calculate_prod_rate_(g, level))  # 1 * #currBins
+                decay_rate = jnp.multiply(self.decayVector_[gID], currExp)
+                noise = self.calculate_noise(currExp, decay_rate, gID, production_rate)
+                curr_dx = self.dt_ * (production_rate - decay_rate) + jnp.power(self.dt_, 0.5) * noise
+                sim_set_not_deleted = []
 
-                # Calculate decay rate
-                decay = np.multiply(self.decayVector_[gID], currExp)
-
-                # Calculate noise
-
-                if self.noiseType_ == 'sp':
-                    # This notation is inconsistent with our formulation, dw should
-                    # include dt^0.5 as well, but here we multipy dt^0.5 later
-                    dw = np.random.normal(size=len(currExp))
-                    amplitude = np.multiply(self.noiseParamsVector_[gID], np.power(prod_rate, 0.5))
-                    noise = np.multiply(amplitude, dw)
-
-                elif self.noiseType_ == "spd":
-                    dw = np.random.normal(size=len(currExp))
-                    amplitude = np.multiply(self.noiseParamsVector_[gID],
-                                            np.power(prod_rate, 0.5) + np.power(decay, 0.5))
-                    noise = np.multiply(amplitude, dw)
-
-                elif self.noiseType_ == "dpd":
-                    # TODO Current implementation is wrong, it should take different noise facotrs (noiseParamsVector_) for production and decay
-                    # Answer to above TODO: not neccessary! 'dpd' is already different than 'spd'
-                    dw_p = np.random.normal(size=len(currExp))
-                    dw_d = np.random.normal(size=len(currExp))
-
-                    amplitude_p = np.multiply(self.noiseParamsVector_[gID], np.power(prod_rate, 0.5))
-                    amplitude_d = np.multiply(self.noiseParamsVector_[gID], np.power(decay, 0.5))
-
-                    noise = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
-
-                # curr_dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise
-
-                delIndices = []
                 for bIDX, gObj in enumerate(g):
                     binID = gObj.binID
-                    gene_time_step = gObj.simulatedSteps_
-                    curr_dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[
-                                                                                                 gene_time_step, :,
-                                                                                                 gID]
-                    gObj.append_Conc(gObj.Conc[-1] + curr_dx[bIDX])
+
+                    curr_dx_gene = curr_dx + self.actions[gObj.simulatedSteps_, :, gID]
+                    gObj.append_Conc(gObj.Conc[-1] + curr_dx_gene[bIDX])
                     gObj.incrementStep()
 
-                    # Check number samples
-                    # if (gObj.converged_ and len(gObj.Conc) == self.calculate_required_steps_(level)):
                     if len(gObj.Conc) == nReqSteps:
                         gObj.set_scExpression(self.scIndices_)
                         self.meanExpression = jax.ops.index_update(
-                            self.meanExpression, jax.ops.index[gID, binID], np.mean(gObj.scExpression))
+                            self.meanExpression, jax.ops.index[gID, binID], jnp.mean(gObj.scExpression))
                         self.level2verts_[level][gIDX][binID] = gObj
-                        delIndices.append(bIDX)
+                    else:
+                        sim_set_not_deleted.append(gObj)
 
-                sim_set[gi] = [i for j, i in enumerate(g) if j not in delIndices]
+                sim_set[gi] = sim_set_not_deleted
+                if sim_set[gi]:
+                    sim_set_keep_genes.append(g)
 
-                if not sim_set[gi]:
-                    delIndicesGenes.append(gi)
+            sim_set = sim_set_keep_genes
 
-            sim_set = [i for j, i in enumerate(sim_set) if j not in delIndicesGenes]
+    def calculate_noise(self, currExp, decay, gID, prod_rate):
+        if self.noiseType_ == 'sp':
+            # This notation is inconsistent with our formulation, dw should
+            # include dt^0.5 as well, but here we multipy dt^0.5 later
+            dw = jnp.random.normal(size=len(currExp))
+            amplitude = jnp.multiply(self.noiseParamsVector_[gID], np.power(prod_rate, 0.5))
+            noise = jnp.multiply(amplitude, dw)
+
+        elif self.noiseType_ == "spd":
+            dw =jnp.random.normal(size=len(currExp))
+            amplitude = jnp.multiply(self.noiseParamsVector_[gID],
+                                    jnp.power(prod_rate, 0.5) + jnp.power(decay, 0.5))
+            noise = jnp.multiply(amplitude, dw)
+
+        elif self.noiseType_ == "dpd":
+            # TODO Current implementation is wrong, it should take different noise facotrs (noiseParamsVector_) for production and decay
+            # Answer to above TODO: not neccessary! 'dpd' is already different than 'spd'
+            dw_p = jnp.random.normal(size=len(currExp))
+            dw_d = jnp.random.normal(size=len(currExp))
+
+            amplitude_p = jnp.multiply(self.noiseParamsVector_[gID], jnp.power(prod_rate, 0.5))
+            amplitude_d = jnp.multiply(self.noiseParamsVector_[gID], jnp.power(decay, 0.5))
+
+            noise = jnp.multiply(amplitude_p, dw_p) + jnp.multiply(amplitude_d, dw_d)
+        return noise
 
     def simulate(self, actions):
         self.actions = actions
@@ -503,10 +494,9 @@ class sergio(object):
             print("Start simulating new level")
             self.CLE_simulator_(level)
             print("Done with current level")
-        return self.getExpressions()
 
     def getExpressions(self):
-        ret = np.zeros((self.nBins_, self.nGenes_, self.nSC_))
+        ret = jnp.zeros((self.nBins_, self.nGenes_, self.nSC_))
         for l in range(self.maxLevels_ + 1):
             currGeneBins = self.level2verts_[l]
             for g in currGeneBins:
@@ -840,19 +830,20 @@ class sergio(object):
         """
         This function
         """
-        out_indicator = np.random.binomial(n=1, p=outlier_prob, size=self.nGenes_)
-        outlierGenesIndx = np.where(out_indicator == 1)[0]
+        out_indicator = jnp.random.binomial(n=1, p=outlier_prob, size=self.nGenes_)
+        outlierGenesIndx = jnp.where(out_indicator == 1)[0]
         numOutliers = len(outlierGenesIndx)
 
         #### generate outlier factors ####
-        outFactors = np.random.lognormal(mean=mean, sigma=scale, size=numOutliers)
+        outFactors = jnp.random.lognormal(mean=mean, sigma=scale, size=numOutliers)
         ##################################
 
-        scData = np.concatenate(scData, axis=1)
+        scData = jnp.concatenate(scData, axis=1)
         for i, gIndx in enumerate(outlierGenesIndx):
-            scData[gIndx, :] = scData[gIndx, :] * outFactors[i]
+            # scData[gIndx, :] = scData[gIndx, :] * outFactors[i]
+            scData = jax.ops.index_update(scData, jax.ops.index[gIndx, :], scData[gIndx, :] * outFactors[i])
 
-        return np.split(scData, self.nBins_, axis=1)
+        return jnp.split(scData, self.nBins_, axis=1)
 
     def lib_size_effect(self, scData, mean, scale):
         """
@@ -874,16 +865,16 @@ class sergio(object):
         # TODO make sure that having bins does not intefere with this implementation
         ret_data = []
 
-        libFactors = np.random.lognormal(mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
+        libFactors = jnp.random.lognormal(mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
         for binExprMatrix, binFactors in zip(scData, libFactors):
-            normalizFactors = np.sum(binExprMatrix, axis=0)
-            binFactors = np.true_divide(binFactors, normalizFactors)
+            normalizFactors = jnp.sum(binExprMatrix, axis=0)
+            binFactors = jnp.true_divide(binFactors, normalizFactors)
             binFactors = binFactors.reshape(1, self.nSC_)
-            binFactors = np.repeat(binFactors, self.nGenes_, axis=0)
+            binFactors = jnp.repeat(binFactors, self.nGenes_, axis=0)
 
-            ret_data.append(np.multiply(binExprMatrix, binFactors))
+            ret_data.append(jnp.multiply(binExprMatrix, binFactors))
 
-        return libFactors, np.array(ret_data)
+        return libFactors, jnp.asarray(ret_data)
 
     def dropout_indicator(self, scData, shape=1, percentile=65):
         """
@@ -897,25 +888,29 @@ class sergio(object):
 
         percentile: the mid-point of logistic functions is set to the given percentile
         of the input scData
-
         returns: np.array containing binary indactors showing dropouts
-        """
-        scData = np.array(scData)
-        scData_log = np.log(np.add(scData, 1))
-        log_mid_point = np.percentile(scData_log, percentile)
-        prob_ber = np.true_divide(1, 1 + np.exp(-1 * shape * (scData_log - log_mid_point)))
 
-        binary_ind = np.random.binomial(n=1, p=prob_ber)
+        Casting this function to numpy:
+            # scData = onp.array(scData)
+            # scData_log = onp.log(onp.add(scData, 1))
+            # log_mid_point = onp.percentile(scData_log, percentile)
+            # prob_ber = onp.true_divide(1, 1 + onp.exp(-1 * shape * (scData_log - log_mid_point)))
+            # binary_ind = onp.random.binomial(n=1, p=prob_ber)
+            # return binary_ind
+        """
+
+        scData_log = jnp.log(jnp.add(scData, 1))
+        log_mid_point = jnp.percentile(scData_log, percentile)
+        prob_ber = jnp.true_divide(1, 1 + jnp.exp(-1 * shape * (scData_log - log_mid_point)))
+
+        # binary_ind = jnp.random.binomial(n=1, p=prob_ber)
+        binary_ind = jnp.array(onp.random.binomial(n=1, p=onp.array(jax.lax.stop_gradient(prob_ber))))
 
         return binary_ind
 
     def convert_to_UMIcounts(self, scData):
-        """
-        Input: scData can be the output of simulator or any refined version of it
-        (e.g. with technical noise)
-        """
-
-        return np.random.poisson(scData)
+        """ Input: scData can be the output of simulator or any refined version of it (e.g. with technical noise) """
+        return jnp.random.poisson(jax.lax.stop_gradient(scData))
 
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""
     "" This part is to add technical noise to dynamics data

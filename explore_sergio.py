@@ -5,7 +5,7 @@ import pandas as pd
 
 
 def steady_state():
-    sim = sergio(number_genes=1, number_bins=2, number_sc=10, noise_params=1, decays=0.8, sampling_state=15,
+    sim = sergio(number_genes=100, number_bins=2, number_sc=10, noise_params=1, decays=0.8, sampling_state=15,
                  noise_type='dpd')
     sim.build_graph(input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4"
                                        ".txt",
@@ -18,7 +18,8 @@ def steady_state():
     """ Add Library Size Effect """
     libFactor, expr_O_L = sim.lib_size_effect(expr_add_outlier_genes, mean=4.6, scale=0.4)
     """ Add Dropouts """
-    binary_ind = sim.dropout_indicator(expr_O_L, shape=6.5, percentile=82)
+    binary_ind = sim.dropout_indicator(expr_O_L, shape=6.5, percentile=82) # shape: (2, 100, 10)
+    print(binary_ind.shape, binary_ind)
     expr_O_L_D = np.multiply(binary_ind, expr_O_L)
     count_matrix_umi_count_format = sim.convert_to_UMIcounts(expr_O_L_D)
     count_expression_matrix = np.concatenate(count_matrix_umi_count_format, axis=1)
