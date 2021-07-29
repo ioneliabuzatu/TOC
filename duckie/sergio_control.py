@@ -495,7 +495,7 @@ class sergio(object):
             self.CLE_simulator_(level)
             print("Done with current level")
 
-    def getExpressions(self):
+    def get_expressions(self):
         ret = jnp.zeros((self.nBins_, self.nGenes_, self.nSC_))
         for l in range(self.maxLevels_ + 1):
             currGeneBins = self.level2verts_[l]
