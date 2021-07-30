@@ -3,12 +3,12 @@ import time
 import jax
 import jax.numpy as np
 
-import duckie.sergio_control
+import duckie.sergio_state
 
 
 def main_control_steady_state():
     start = time.time()
-    env = duckie.sergio_control.sergio(
+    env = duckie.sergio_state.sergio(
         number_genes=100,  # Features
         number_bins=2,  # Number of cell types
         number_sc=2,  # 0,  # 300,  # Number of single cells for which expression is simulated
