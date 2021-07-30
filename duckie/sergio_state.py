@@ -6,7 +6,7 @@ import jax.ops
 import networkx as nx
 import numpy as onp
 
-from SERGIO.SERGIO.gene import gene
+from genes import gene
 
 np.int = int
 np.float = float
