@@ -1,3 +1,4 @@
+import collections
 import csv
 import sys
 
@@ -6,7 +7,7 @@ import jax.ops
 import networkx as nx
 import numpy as onp
 
-from genes import gene
+from duckie.genes import gene
 
 np.int = int
 np.float = float
@@ -55,6 +56,7 @@ class sergio(object):
         self.dt_ = dt
         self.optimize_sampling_ = optimize_sampling
         self.level2verts_ = {}
+        self.gene_to_len = collections.defaultdict(int)
         self.gID_to_level_and_idx = {}  # This dictionary gives the level and idx in self.level2verts_ of a given gene ID
         self.binDict = {}  # This maps bin ID to list of gene objects in that bin; only used for dynamics simulations
         self.maxLevels_ = 0
@@ -125,7 +127,6 @@ class sergio(object):
                 sys.exit()
 
         self.global_state = np.full((self.nBins_, self.nGenes_, self.sampling_state_ * self.nSC_), -1.)
-
 
     def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
         """
@@ -367,7 +368,13 @@ class sergio(object):
                 allBinRates = self.graph_[g[0].ID]['rates']
 
                 for bIdx, rate in enumerate(allBinRates):
-                    g[bIdx].append_Conc(np.true_divide(rate, self.decayVector_[g[0].ID]))
+
+                    x0 = np.true_divide(rate, self.decayVector_[g[0].ID])
+
+                    gi = g[bIdx]
+                    x0 = np.clip(x0, 0)
+                    self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[gi.binID, gi.ID, gi.conc_len], x0)
+                    gi.conc_len += 1
 
             else:
                 params = self.graph_[g[0].ID]['params']
@@ -378,7 +385,13 @@ class sergio(object):
                         meanExp = self.meanExpression[interTuple[0], bIdx]
                         rate += np.abs(interTuple[1]) * self.hill_(meanExp, interTuple[3], interTuple[2], interTuple[1] < 0)
 
-                    g[bIdx].append_Conc(np.true_divide(rate, self.decayVector_[g[0].ID]))
+                    gi = g[bIdx]
+
+                    x0 = np.true_divide(rate, self.decayVector_[g[0].ID])
+                    x0 = np.clip(x0, 0)
+
+                    self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[gi.binID, gi.ID, gi.conc_len], x0)
+                    gi.conc_len += 1
 
     def calculate_prod_rate_(self, bin_list, level):
         """
@@ -415,17 +428,16 @@ class sergio(object):
     def CLE_simulator_(self, level):
         self.calculate_half_response_(level)
         self.init_gene_bin_conc_(level)
-        x0 = self.get_state()
 
         nReqSteps = self.calculate_required_steps_(level)
         sim_set = np.copy(self.level2verts_[level]).tolist()
         print("There are " + str(len(sim_set)) + " genes to simulate in this layer")
 
         while sim_set != []:
-            nRemainingG = len(sim_set)
-            if nRemainingG % 10 == 0:
-                # print "\t Still " + str(nRemainingG) + " genes to simulate"
-                sys.stdout.flush()
+
+
+
+
 
             delIndicesGenes = []
             for gi, g in enumerate(sim_set):
@@ -433,10 +445,10 @@ class sergio(object):
                 gLevel = self.gID_to_level_and_idx[gID][0]
                 gIDX = self.gID_to_level_and_idx[gID][1]
 
-                #### DEBUG ######
-                if level != gLevel:
-                    sys.exit()
-                #################
+
+
+
+
                 currExp = np.array([gb.Conc[-1] for gb in g], dtype=np.float32)
                 assert len(currExp) == self.nBins_
 
@@ -457,13 +469,17 @@ class sergio(object):
                     binID = gObj.binID
                     gene_time_step = gObj.simulatedSteps_
                     curr_dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[gene_time_step, :, gID]
-                    gObj.ensure_consistency()
-                    gObj.append_Conc(gObj.Conc[-1] + curr_dx[bIDX])
-                    gObj.incrementStep()
+
+                    x1 = gObj.Conc[-1] + curr_dx[bIDX]
+                    x0 = np.clip(x1, 0)
+                    self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[gObj.binID, gObj.ID, gObj.conc_len], x0)
+                    gObj.conc_len += 1
+                    # gObj.append_Conc(gObj.Conc[-1] + curr_dx[bIDX])
+                    # gObj.incrementStep()
 
                     # Check number samples
                     # if (gObj.converged_ and len(gObj.Conc) == self.calculate_required_steps_(level)):
-                    if len(gObj._Conc) == nReqSteps:
+                    if gObj.conc_len == nReqSteps:
                         gObj.set_scExpression(self.scIndices_)
                         self.meanExpression = jax.ops.index_update(
                             self.meanExpression, jax.ops.index[gID, binID], np.mean(gObj.scExpression))
