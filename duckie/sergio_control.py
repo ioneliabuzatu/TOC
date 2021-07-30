@@ -8,6 +8,7 @@ import networkx as nx
 from scipy.stats import wasserstein_distance
 
 import jax.numpy as jnp
+
 jnp.int = int
 jnp.float = float
 jnp.random = onp.random
@@ -346,10 +347,10 @@ class sergio(object):
         else:
             if repressive:
                 return 1 - jnp.true_divide(jnp.power(reg_conc, coop_state),
-                                          (jnp.power(half_response, coop_state) + jnp.power(reg_conc, coop_state)))
+                                           (jnp.power(half_response, coop_state) + jnp.power(reg_conc, coop_state)))
             else:
                 return jnp.true_divide(jnp.power(reg_conc, coop_state),
-                                      (jnp.power(half_response, coop_state) + jnp.power(reg_conc, coop_state)))
+                                       (jnp.power(half_response, coop_state) + jnp.power(reg_conc, coop_state)))
 
     def init_gene_bin_conc_(self, level):
         """
@@ -374,7 +375,7 @@ class sergio(object):
                     for interTuple in params:
                         meanExp = self.meanExpression[interTuple[0], bIdx]
                         rate += jnp.abs(interTuple[1]) * self.hill_(meanExp, interTuple[3], interTuple[2],
-                                                                   interTuple[1] < 0)
+                                                                    interTuple[1] < 0)
 
                     g[bIdx].append_Conc(jnp.true_divide(rate, self.decayVector_[g[0].ID]))
 
@@ -471,9 +472,9 @@ class sergio(object):
             noise = jnp.multiply(amplitude, dw)
 
         elif self.noiseType_ == "spd":
-            dw =jnp.random.normal(size=len(currExp))
+            dw = jnp.random.normal(size=len(currExp))
             amplitude = jnp.multiply(self.noiseParamsVector_[gID],
-                                    jnp.power(prod_rate, 0.5) + jnp.power(decay, 0.5))
+                                     jnp.power(prod_rate, 0.5) + jnp.power(decay, 0.5))
             noise = jnp.multiply(amplitude, dw)
 
         elif self.noiseType_ == "dpd":
@@ -898,14 +899,10 @@ class sergio(object):
             # binary_ind = onp.random.binomial(n=1, p=prob_ber)
             # return binary_ind
         """
-
         scData_log = jnp.log(jnp.add(scData, 1))
         log_mid_point = jnp.percentile(scData_log, percentile)
         prob_ber = jnp.true_divide(1, 1 + jnp.exp(-1 * shape * (scData_log - log_mid_point)))
-
-        # binary_ind = jnp.random.binomial(n=1, p=prob_ber)
         binary_ind = jnp.array(onp.random.binomial(n=1, p=onp.array(jax.lax.stop_gradient(prob_ber))))
-
         return binary_ind
 
     def convert_to_UMIcounts(self, scData):
