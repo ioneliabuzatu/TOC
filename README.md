@@ -1,4 +1,3 @@
 ## TranscriptomicsOptimalControl
-```git clone --recursive```
 
 

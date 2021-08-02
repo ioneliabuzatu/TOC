@@ -4,8 +4,9 @@ from SERGIO.SERGIO.sergio import sergio
 import pandas as pd
 
 
-def steady_state(input_file_targets, input_file_regs):
-    sim = sergio(number_genes=12, number_bins=1, number_sc=2, noise_params=1, decays=0.8, sampling_state=15,
+def steady_state(input_file_targets, input_file_regs, num_cell_types, num_genes):
+    sim = sergio(number_genes=num_genes, number_bins=num_cell_types, number_sc=2, noise_params=1, decays=0.8,
+                 sampling_state=15,
                  noise_type='dpd')
     sim.build_graph(input_file_taregts=input_file_targets, input_file_regs=input_file_regs, shared_coop_state=2)
     sim.simulate()
@@ -23,16 +24,17 @@ def steady_state(input_file_targets, input_file_regs):
     print(transpose_count_matrix.shape)
 
 
-def differentiated_states():
-    df = pd.read_csv('SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/bMat_cID7.tab', sep='\t', header=None,
-                     index_col=None)
+def differentiated_states(bifurcation_matrix, targets_filepath, regulons_filepath, num_cell_types, num_genes):
+    df = pd.read_csv(bifurcation_matrix, sep='\t', header=None, index_col=None)
     bMat = df.values
-    sim = sergio(number_genes=100, number_bins=6, number_sc=10, noise_params=0.2, decays=0.8, sampling_state=1,
+    sim = sergio(number_genes=num_genes, number_bins=num_cell_types, number_sc=2, noise_params=0.2, decays=0.8,
+                 sampling_state=1,
                  noise_params_splice=0.07, noise_type='dpd', dynamics=True, bifurcation_matrix=bMat)
     sim.build_graph(
-        input_file_taregts='SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/Interaction_cID_7.txt',
-        input_file_regs='SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/Regs_cID_7.txt',
-        shared_coop_state=2)
+        input_file_taregts=targets_filepath,
+        input_file_regs=regulons_filepath,
+        shared_coop_state=2
+    )
     sim.simulate_dynamics()
     exprU, exprS = sim.getExpressions_dynamics()
     exprU_clean = np.concatenate(exprU, axis=1)
@@ -42,10 +44,20 @@ def differentiated_states():
 
 if __name__ == "__main__":
     start = time.time()
-    input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4.txt",
-    input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",
-    input_file_taregts = "scenic-sergio/interactions.txt"
-    input_file_regs = "scenic-sergio/regulons.txt"
-    steady_state(input_file_taregts, input_file_regs)
-    # differentiated_states()
-    print(f"Took {time.time()-start:.4f} sec.")
+
+    input_file_taregts_steady_state = "duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4.txt"
+    input_file_regs_steady_state = "duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt"
+    input_file_taregts_dynamics = 'SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/Interaction_cID_7.txt'
+    input_file_regs_dynamics = 'SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/Regs_cID_7.txt'
+    bifurcation_matrix_dynamics = 'SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/bMat_cID7.tab'
+    input_file_taregts = "scenic-sergio/data/toy-from-real/interactions.txt"
+    input_file_regs = "scenic-sergio/data/toy-from-real/regulons.txt"
+    bifurcation_matrix = "scenic-sergio/data/toy-from-real/bifurcation_matrix.tab"
+
+    steady_state(input_file_taregts, input_file_regs, num_cell_types=1, num_genes=12)
+    # differentiated_states(bifurcation_matrix, input_file_taregts, input_file_regs, num_cell_types=1, num_genes=12)
+    # differentiated_states(bifurcation_matrix_dynamics, input_file_taregts_dynamics, input_file_regs_dynamics,
+    #                       num_cell_types=6,
+    #                       num_genes=100)
+
+    print(f"Took {time.time() - start:.4f} sec.")

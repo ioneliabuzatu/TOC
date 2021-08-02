@@ -7,7 +7,7 @@ def create_txt_file_for_sergio_from_scenic(adjacencies: np.ndarray, save_txt_fil
     if importance_threshold is not None:
         adjacencies = select_grn_by_importance_threshold(adjacencies, importance_threshold)
         print(f"The trimmed adjacencies matrix has shape: {adjacencies.shape}")
-        np.save("../data/scenic/mouse/GSE133382.adjacencies.trimmed.npy", adjacencies)
+        np.save("../data/scenic/mouse/diseased/GSE133382.adjacencies.trimmed.npy", adjacencies)
 
     tot_unique_ids, master_regulons = unique_ids_and_master_regulons(adjacencies)
 
@@ -28,7 +28,7 @@ def select_grn_by_importance_threshold(adjacencies: np.ndarray, importance_thres
     return adjacencies[:select_until_row_x]
 
 
-def unique_ids_and_master_regulons(adjacencies) -> np.ndarray:
+def unique_ids_and_master_regulons(adjacencies)  :
     tfs_set = np.unique(adjacencies[:, 0].flatten())
     target_genes_set = np.unique(adjacencies[:, 1].flatten())
 
@@ -77,9 +77,9 @@ def parse_dict_target_tf(target_genes_dict: dict, filepath_grn_for_sergio: str, 
 
 
 if __name__ == "__main__":
-    adjacencies = np.load("../data/scenic/mouse/GSE133382.adjacencies.npy", allow_pickle=True)
+    adjacencies = np.load("../data/scenic/mouse/control/GSE133382.adjacencies.npy", allow_pickle=True)
     print(f"Original adjacencies matrix shape: {adjacencies.shape}")
     create_txt_file_for_sergio_from_scenic(adjacencies,
-                                           save_txt_filepath="../data/scenic/mouse/interaction_cID_trimmed_by_importance.txt",
+                                           save_txt_filepath="../data/scenic/mouse/DELETE_interaction_importance.txt",
                                            importance_threshold=0.000001
                                            )
