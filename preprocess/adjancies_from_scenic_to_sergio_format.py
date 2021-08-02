@@ -9,7 +9,7 @@ def create_txt_file_for_sergio_from_scenic(adjacencies: np.ndarray, save_txt_fil
         print(f"The trimmed adjacencies matrix has shape: {adjacencies.shape}")
         np.save("../data/scenic/mouse/GSE133382.adjacencies.trimmed.npy", adjacencies)
 
-    tot_unique_ids = unique_ids(adjacencies)
+    tot_unique_ids, master_regulons = unique_ids_and_master_regulons(adjacencies)
 
     genes_ids_to_names_mapping = {k: v for v, k in enumerate(tot_unique_ids)}
     save_gene_ids_to_their_name_dict(genes_ids_to_names_mapping, save_txt_filepath)
@@ -28,10 +28,11 @@ def select_grn_by_importance_threshold(adjacencies: np.ndarray, importance_thres
     return adjacencies[:select_until_row_x]
 
 
-def unique_ids(adjacencies) -> np.ndarray:
+def unique_ids_and_master_regulons(adjacencies) -> np.ndarray:
     tfs_set = np.unique(adjacencies[:, 0].flatten())
     target_genes_set = np.unique(adjacencies[:, 1].flatten())
 
+    unique_master_regulons = set(tfs_set) - set(target_genes_set)
     tot_ids_with_replicates = np.zeros(len(tfs_set) + len(target_genes_set), dtype=object)
     tot_ids_with_replicates[:len(tfs_set)] = tfs_set
     tot_ids_with_replicates[len(tfs_set):] = target_genes_set
@@ -39,7 +40,7 @@ def unique_ids(adjacencies) -> np.ndarray:
     tot_unique_ids = np.unique(tot_ids_with_replicates)
 
     print(f"Found unique TFs/genes {len(tot_unique_ids)}.")
-    return tot_unique_ids
+    return tot_unique_ids, unique_master_regulons
 
 
 def save_gene_ids_to_their_name_dict(genes_ids_to_their_names_dict, filepath_to_save):
@@ -80,5 +81,5 @@ if __name__ == "__main__":
     print(f"Original adjacencies matrix shape: {adjacencies.shape}")
     create_txt_file_for_sergio_from_scenic(adjacencies,
                                            save_txt_filepath="../data/scenic/mouse/interaction_cID_trimmed_by_importance.txt",
-                                           importance_threshold=0.01
+                                           importance_threshold=0.000001
                                            )

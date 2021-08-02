@@ -4,12 +4,10 @@ from SERGIO.SERGIO.sergio import sergio
 import pandas as pd
 
 
-def steady_state():
-    sim = sergio(number_genes=100, number_bins=2, number_sc=10, noise_params=1, decays=0.8, sampling_state=15,
+def steady_state(input_file_targets, input_file_regs):
+    sim = sergio(number_genes=12, number_bins=1, number_sc=2, noise_params=1, decays=0.8, sampling_state=15,
                  noise_type='dpd')
-    sim.build_graph(input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4"
-                                       ".txt",
-                    input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",
+    sim.build_graph(input_file_taregts=input_file_targets, input_file_regs=input_file_regs, shared_coop_state=2)
     sim.simulate()
     expr = sim.getExpressions()
     expr_clean = np.concatenate(expr, axis=1)
@@ -44,6 +42,10 @@ def differentiated_states():
 
 if __name__ == "__main__":
     start = time.time()
-    steady_state()
+    input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4.txt",
+    input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",
+    input_file_taregts = "scenic-sergio/interactions.txt"
+    input_file_regs = "scenic-sergio/regulons.txt"
+    steady_state(input_file_taregts, input_file_regs)
     # differentiated_states()
     print(f"Took {time.time()-start:.4f} sec.")
