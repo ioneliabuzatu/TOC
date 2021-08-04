@@ -9,4 +9,4 @@ flow = ScenicSergioFlow(
     filepath_to_save_regulons="scenicsergio/both_regulons.txt",
     select_percent_adjancies=2
 )
-flow.make_txt_sergio()
+flow.make_grn_sergio()

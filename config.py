@@ -3,8 +3,8 @@ import os
 import experiment_buddy
 
 # preprocess_workflow.py user inputs
-filepath_adjancies_control = "data/scenic/mouse/control/GSE133382.adjacencies.tsv"
-filepath_adjancies_disease = "data/scenic/mouse/diseased/GSE133382.adjacencies.tsv"
+filepath_adjancies_control = "data/scenic/mouse/control/GSE133382.adjacencies.npy"
+filepath_adjancies_disease = "data/scenic/mouse/diseased/GSE133382.disease.adjacencies.npy"
 
 root_npys = "data/Tran_RGC_scRNA/npys"
 root_toy_data = "data/Tran_RGC_scRNA/npys/toy-data"
