@@ -14,7 +14,6 @@ class gene:
         self.sergio = sergio
         self.Type = geneType
         self.binID = binID
-        self.simulatedSteps_ = 0
         self.conc_len = 0
         self.converged_ = False
         self.converged_S_ = False
@@ -24,9 +23,6 @@ class gene:
         currConc = np.clip(currConc, 0)
         self.sergio.global_state = jax.ops.index_update(self.sergio.global_state, jax.ops.index[self.binID, self.ID, self.conc_len], currConc)
         self.conc_len += 1
-
-    def incrementStep(self):
-        self.simulatedSteps_ += 1
 
     def set_scExpression(self, list_indices):
         """

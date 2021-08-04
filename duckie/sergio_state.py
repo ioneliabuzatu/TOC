@@ -127,6 +127,7 @@ class sergio(object):
                 sys.exit()
 
         self.global_state = np.full((self.nBins_, self.nGenes_, self.sampling_state_ * self.nSC_), -1.)
+        self.simulation_time = 0
 
     def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
         """
@@ -368,13 +369,10 @@ class sergio(object):
                 allBinRates = self.graph_[g[0].ID]['rates']
 
                 for bIdx, rate in enumerate(allBinRates):
-
                     x0 = np.true_divide(rate, self.decayVector_[g[0].ID])
 
                     gi = g[bIdx]
-                    x0 = np.clip(x0, 0)
-                    self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[gi.binID, gi.ID, gi.conc_len], x0)
-                    gi.conc_len += 1
+                    self.update_gene(gi, x0)
 
             else:
                 params = self.graph_[g[0].ID]['params']
@@ -388,18 +386,15 @@ class sergio(object):
                     gi = g[bIdx]
 
                     x0 = np.true_divide(rate, self.decayVector_[g[0].ID])
-                    x0 = np.clip(x0, 0)
+                    self.update_gene(gi, x0)
 
-                    self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[gi.binID, gi.ID, gi.conc_len], x0)
-                    gi.conc_len += 1
-
-    def calculate_prod_rate_(self, bin_list, level):
+    def calculate_prod_rate_fast(self, bin_list, level):
         """
         calculates production rates for the input list of gene objects in different bins but all associated to a single gene ID
         """
         type = bin_list[0].Type
 
-        if (type == 'MR'):
+        if type == 'MR':
             rates = self.graph_[bin_list[0].ID]['rates']
             return [rates[gb.binID] for gb in bin_list]
 
@@ -408,8 +403,37 @@ class sergio(object):
             Ks = np.array([np.abs(t[1]) for t in params])
             regIndices = [t[0] for t in params]
             binIndices = [gb.binID for gb in bin_list]
-            currStep = bin_list[0].simulatedSteps_
-            lastLayerGenes = np.copy(self.level2verts_[level + 1])
+            currStep = bin_list[0].conc_len - 1
+
+            hillMatrix = np.zeros((len(regIndices), self.nBins_))
+
+            for tupleIdx, rIdx in enumerate(regIndices):
+                reg_concs = self.global_state[:, rIdx, currStep]
+
+                for colIdx, bIdx in enumerate(binIndices):
+                    reg_conc = reg_concs[colIdx]
+                    new_state_concentration_gene = self.hill_(reg_conc, params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
+                    hillMatrix = jax.ops.index_update(hillMatrix, jax.ops.index[tupleIdx, colIdx], new_state_concentration_gene)
+
+            return np.matmul(Ks, hillMatrix)
+
+    def calculate_prod_rate_OLD(self, bin_list, level):
+        """
+        calculates production rates for the input list of gene objects in different bins but all associated to a single gene ID
+        """
+        type = bin_list[0].Type
+
+        if type == 'MR':
+            rates = self.graph_[bin_list[0].ID]['rates']
+            return [rates[gb.binID] for gb in bin_list]
+
+        else:
+            params = self.graph_[bin_list[0].ID]['params']
+            Ks = np.array([np.abs(t[1]) for t in params])
+            regIndices = [t[0] for t in params]
+            binIndices = [gb.binID for gb in bin_list]
+            currStep = bin_list[0].conc_len
+
             hillMatrix = np.zeros((len(regIndices), len(binIndices)))
 
             for tupleIdx, rIdx in enumerate(regIndices):
@@ -434,26 +458,16 @@ class sergio(object):
         print("There are " + str(len(sim_set)) + " genes to simulate in this layer")
 
         while sim_set != []:
-
-
-
-
-
             delIndicesGenes = []
+
             for gi, g in enumerate(sim_set):
                 gID = g[0].ID
-                gLevel = self.gID_to_level_and_idx[gID][0]
                 gIDX = self.gID_to_level_and_idx[gID][1]
-
-
-
-
-
                 currExp = np.array([gb.Conc[-1] for gb in g], dtype=np.float32)
                 assert len(currExp) == self.nBins_
 
                 # Calculate production rate
-                prod_rate = np.array(self.calculate_prod_rate_(g, level))  # 1 * #currBins
+                prod_rate = np.array(self.calculate_prod_rate_OLD(g, level))  # 1 * #currBins
 
                 # Calculate decay rate
                 decay = np.multiply(self.decayVector_[gID], currExp)
@@ -462,23 +476,20 @@ class sergio(object):
 
                 noise = self.calc_noise(currExp, decay, gID, prod_rate)
 
-                # curr_dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[0, :, gID]
+                dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[self.simulation_time, :, gID]
 
                 delIndices = []
                 for bIDX, gObj in enumerate(g):
+                    assert self.simulation_time == gObj.conc_len - 1
+                    assert bIDX == gObj.binID
+
                     binID = gObj.binID
-                    gene_time_step = gObj.simulatedSteps_
-                    curr_dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[gene_time_step, :, gID]
+                    # dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[time_step, :, gID]
+                    dxi = dx[gObj.binID]
 
-                    x1 = gObj.Conc[-1] + curr_dx[bIDX]
-                    x0 = np.clip(x1, 0)
-                    self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[gObj.binID, gObj.ID, gObj.conc_len], x0)
-                    gObj.conc_len += 1
-                    # gObj.append_Conc(gObj.Conc[-1] + curr_dx[bIDX])
-                    # gObj.incrementStep()
+                    x1 = gObj.Conc[-1] + dxi
+                    self.update_gene(gObj, x1)
 
-                    # Check number samples
-                    # if (gObj.converged_ and len(gObj.Conc) == self.calculate_required_steps_(level)):
                     if gObj.conc_len == nReqSteps:
                         gObj.set_scExpression(self.scIndices_)
                         self.meanExpression = jax.ops.index_update(
@@ -488,10 +499,16 @@ class sergio(object):
 
                 sim_set[gi] = [i for j, i in enumerate(g) if j not in delIndices]
 
-                if sim_set[gi] == []:
+                if not sim_set[gi]:
                     delIndicesGenes.append(gi)
 
             sim_set = [i for j, i in enumerate(sim_set) if j not in delIndicesGenes]
+            self.simulation_time += 1
+
+    def update_gene(self, gObj, x1):
+        x0 = np.clip(x1, 0)
+        self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[gObj.binID, gObj.ID, gObj.conc_len], x0)
+        gObj.conc_len += 1
 
     def calc_noise(self, currExp, decay, gID, prod_rate):
         if self.noiseType_ == 'sp':
@@ -521,6 +538,7 @@ class sergio(object):
     def simulate(self, actions):
         self.actions = actions
         for level in range(self.maxLevels_, -1, -1):
+            self.simulation_time = 0 # TODO: meh
             print("Start simulating new level")
             self.CLE_simulator_(level)
             print("Done with current level")
