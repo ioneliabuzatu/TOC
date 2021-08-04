@@ -902,12 +902,15 @@ class sergio(object):
         scData_log = jnp.log(jnp.add(scData, 1))
         log_mid_point = jnp.percentile(scData_log, percentile)
         prob_ber = jnp.true_divide(1, 1 + jnp.exp(-1 * shape * (scData_log - log_mid_point)))
-        binary_ind = jnp.array(onp.random.binomial(n=1, p=onp.array(jax.lax.stop_gradient(prob_ber))))
+        # binary_ind = jnp.array(onp.random.binomial(n=1, p=onp.array(jax.lax.stop_gradient(prob_ber))))
+        key = jax.random.PRNGKey(0)
+        binary_ind = jax.random.bernoulli(key, p=prob_ber)
+        # binary_ind = jnp.array(jnp.random.binomial(n=1, p=prob_ber))
         return binary_ind
 
     def convert_to_UMIcounts(self, scData):
         """ Input: scData can be the output of simulator or any refined version of it (e.g. with technical noise) """
-        return jnp.random.poisson(jax.lax.stop_gradient(scData))
+        return jnp.random.poisson(scData)
 
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""
     "" This part is to add technical noise to dynamics data
