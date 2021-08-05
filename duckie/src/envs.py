@@ -55,7 +55,6 @@ class EnvControlSteadyState(object):
         count_expression_matrix = jnp.concatenate(count_matrix_umi_count_format, axis=1)
 
         transpose_count_matrix = count_expression_matrix.T
-        # return binary_dropout_indices
         return transpose_count_matrix
 
 

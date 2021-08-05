@@ -1,4 +1,7 @@
 import csv
+# from jax.config import config
+# config.update("jax_debug_nans", True)
+# config.parse_flags_with_absl()
 # from SERGIO.SERGIO.gene import gene
 import sys
 
@@ -930,7 +933,8 @@ class sergio(object):
 
     def convert_to_UMIcounts_continuous(self, scData, key):
         """ Input: scData can be the output of simulator or any refined version of it (e.g. with technical noise) """
-        return jax.random.gamma(key, scData, shape=scData.shape)
+        # return jax.random.gamma(key, scData, shape=scData.shape)
+        return jax.random.poisson(key=key, lam=scData, shape=scData.shape)
 
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""
     "" This part is to add technical noise to dynamics data
