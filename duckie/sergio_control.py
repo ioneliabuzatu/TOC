@@ -887,7 +887,7 @@ class sergio(object):
 
         return libFactors, jnp.asarray(ret_data)
 
-    def dropout_indicator(self, scData, shape=1, percentile=65):
+    def dropout_indicator(self, scData, key, shape=1, percentile=65):
         """
         This is similar to Splat package
 
@@ -911,9 +911,11 @@ class sergio(object):
         """
         scData_log = jnp.log(jnp.add(scData, 1))
         log_mid_point = jnp.percentile(scData_log, percentile)
+        # log_mid_point = jnp.mean(scData_log)
+
         prob_ber = jnp.true_divide(1, 1 + jnp.exp(-1 * shape * (scData_log - log_mid_point)))
         # binary_ind = jnp.array(onp.random.binomial(n=1, p=onp.array(jax.lax.stop_gradient(prob_ber))))
-        key = jax.random.PRNGKey(0)
+
         binary_ind = jax.random.bernoulli(key, p=prob_ber)
         # binary_ind = jnp.array(jnp.random.binomial(n=1, p=prob_ber))
         return binary_ind
@@ -930,7 +932,12 @@ class sergio(object):
 
     def convert_to_UMIcounts_continuous(self, scData, key):
         """ Input: scData can be the output of simulator or any refined version of it (e.g. with technical noise) """
-        return jax.random.gamma(key, scData, shape=scData.shape)
+        zeros = jnp.where(scData == 0)
+        scData = jax.ops.index_update(scData, zeros, 1.)
+
+        counts = jax.random.gamma(key, scData, shape=scData.shape)
+        counts = jax.ops.index_update(counts, zeros, 0.)
+        return counts
 
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""
     "" This part is to add technical noise to dynamics data

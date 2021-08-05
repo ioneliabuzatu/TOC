@@ -44,7 +44,7 @@ class EnvControlSteadyState(object):
         _, expression_with_outliers = self.env.lib_size_effect(expr_add_outlier_genes, mean=4.6, scale=0.4, key=kay)
 
         kay, key = jax.random.split(key, num=2)
-        binary_dropout_indices = self.env.dropout_indicator(expression_with_outliers, shape=6.5, percentile=82)
+        binary_dropout_indices = self.env.dropout_indicator(expression_with_outliers, shape=6.5, percentile=82, key=kay)
 
         kay, key = jax.random.split(key, num=2)
         expression_with_outliers_and_dropout = jnp.multiply(binary_dropout_indices, expression_with_outliers)
