@@ -1,5 +1,4 @@
 import csv
-# from SERGIO.SERGIO.gene import gene
 import sys
 
 import jax.dtypes
