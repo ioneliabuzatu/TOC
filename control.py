@@ -22,11 +22,12 @@ def main_control_steady_state():
     )
 
     def loss_fn(actions):
-        count_matrix_expression = env_steady_state.step(actions, ignore_technical_noise=False)
+        ret = jnp.zeros((env_steady_state.env.nBins_, env_steady_state.env.nGenes_, env_steady_state.env.nSC_))
+        count_matrix_expression = env_steady_state.add_technical_noise(actions.mean() + ret)
         return -jnp.mean(jnp.sum(jnp.power(count_matrix_expression, 2), axis=1))
 
     actions = jnp.zeros((env_steady_state.env.sampling_state_ * env_steady_state.env.nSC_, env_steady_state.env.nBins_,
-                         env_steady_state.env.nGenes_))
+                         env_steady_state.env.nGenes_)) + 0.1
     loss, grad = jax.value_and_grad(loss_fn)(actions)
     print("loss", loss)
     print(f"grad shape: {grad.shape} \n grad: {grad}")

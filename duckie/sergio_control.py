@@ -1,18 +1,27 @@
-import jax.ops
-import numpy as onp
-from SERGIO.SERGIO.gene import gene
-from scipy.stats import ttest_rel, ttest_ind, ranksums
-import sys
 import csv
-import networkx as nx
-from scipy.stats import wasserstein_distance
+# from SERGIO.SERGIO.gene import gene
+import sys
 
+import jax.dtypes
+import jax.dtypes
 import jax.numpy as jnp
+import jax.ops
+import jax.random
+import networkx as nx
+import numpy as np
+import numpy as onp
+
+from duckie.genes import Gene as gene
 
 jnp.int = int
 jnp.float = float
-jnp.random = onp.random
+# jnp.random = onp.random
 jnp.copy = onp.copy
+
+
+def lognormal(key: jnp.ndarray, mean, sigma, size, dtype=onp.float):
+    normal = jax.random.normal(key, size, dtype) + mean
+    return jnp.exp(normal * sigma)
 
 
 class sergio(object):
@@ -296,7 +305,7 @@ class sergio(object):
             if state < self.sampling_state_:
                 self.sampling_state_ = state
 
-        self.scIndices_ = jnp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
+        self.scIndices_ = onp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
 
     def calculate_required_steps_(self, level, safety_steps=0):
         """
@@ -827,16 +836,17 @@ class sergio(object):
     "" This part is to add technical noise
     """""""""""""""""""""""""""""""""""""""
 
-    def outlier_effect(self, scData, outlier_prob, mean, scale):
+    def outlier_effect(self, scData, outlier_prob, mean, scale, key):
         """
         This function
         """
-        out_indicator = jnp.random.binomial(n=1, p=outlier_prob, size=self.nGenes_)
+        out_indicator = jax.random.bernoulli(key=key, p=outlier_prob, shape=(self.nGenes_,))
         outlierGenesIndx = jnp.where(out_indicator == 1)[0]
         numOutliers = len(outlierGenesIndx)
 
         #### generate outlier factors ####
-        outFactors = jnp.random.lognormal(mean=mean, sigma=scale, size=numOutliers)
+
+        outFactors = lognormal(key, mean=mean, sigma=scale, size=(numOutliers,))
         ##################################
 
         scData = jnp.concatenate(scData, axis=1)
@@ -844,9 +854,9 @@ class sergio(object):
             # scData[gIndx, :] = scData[gIndx, :] * outFactors[i]
             scData = jax.ops.index_update(scData, jax.ops.index[gIndx, :], scData[gIndx, :] * outFactors[i])
 
-        return jnp.split(scData, self.nBins_, axis=1)
+        return jnp.split(scData, self.nBins_, axis=1), key
 
-    def lib_size_effect(self, scData, mean, scale):
+    def lib_size_effect(self, scData, mean, scale, key):
         """
         This functions adjusts the mRNA levels in each cell seperately to mimic
         the library size effect. To adjust mRNA levels, cell-specific factors are sampled
@@ -866,7 +876,7 @@ class sergio(object):
         # TODO make sure that having bins does not intefere with this implementation
         ret_data = []
 
-        libFactors = jnp.random.lognormal(mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
+        libFactors = lognormal(key, mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
         for binExprMatrix, binFactors in zip(scData, libFactors):
             normalizFactors = jnp.sum(binExprMatrix, axis=0)
             binFactors = jnp.true_divide(binFactors, normalizFactors)
@@ -908,9 +918,19 @@ class sergio(object):
         # binary_ind = jnp.array(jnp.random.binomial(n=1, p=prob_ber))
         return binary_ind
 
-    def convert_to_UMIcounts(self, scData):
+    def convert_to_UMIcounts(self, scData, key):
         """ Input: scData can be the output of simulator or any refined version of it (e.g. with technical noise) """
-        return jnp.random.poisson(scData)
+        return jax.random.poisson(key, scData, shape=scData.shape)
+
+    def grad_that(self, lambda_, key):
+        n = self.convert_to_UMIcounts(lambda_, key) / lambda_
+        ybar = lambda_.mean()
+        grad = n * (ybar - lambda_) / lambda_
+        return grad
+
+    def convert_to_UMIcounts_continuous(self, scData, key):
+        """ Input: scData can be the output of simulator or any refined version of it (e.g. with technical noise) """
+        return jax.random.gamma(key, scData, shape=scData.shape)
 
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""
     "" This part is to add technical noise to dynamics data

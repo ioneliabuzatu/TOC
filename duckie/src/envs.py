@@ -1,3 +1,5 @@
+import jax
+
 import duckie.sergio_control
 import jax.numpy as jnp
 import pandas as pd
@@ -33,12 +35,25 @@ class EnvControlSteadyState(object):
         return self.env.get_expressions()
 
     def add_technical_noise(self, expression):
-        expr_add_outlier_genes = self.env.outlier_effect(expression, outlier_prob=0.01, mean=0.8, scale=1)
-        _, expression_with_outliers = self.env.lib_size_effect(expr_add_outlier_genes, mean=4.6, scale=0.4)
+        key = jax.random.PRNGKey(0)
+
+        kay, key = jax.random.split(key, num=2)
+        expr_add_outlier_genes, key = self.env.outlier_effect(expression, outlier_prob=0.01, mean=0.8, scale=1, key=kay)
+
+        kay, key = jax.random.split(key, num=2)
+        _, expression_with_outliers = self.env.lib_size_effect(expr_add_outlier_genes, mean=4.6, scale=0.4, key=kay)
+
+        kay, key = jax.random.split(key, num=2)
         binary_dropout_indices = self.env.dropout_indicator(expression_with_outliers, shape=6.5, percentile=82)
+
+        kay, key = jax.random.split(key, num=2)
         expression_with_outliers_and_dropout = jnp.multiply(binary_dropout_indices, expression_with_outliers)
-        count_matrix_umi_count_format = self.env.convert_to_UMIcounts(expression_with_outliers_and_dropout)
+
+        kay, key = jax.random.split(key, num=2)
+        count_matrix_umi_count_format = self.env.convert_to_UMIcounts_continuous(expression_with_outliers_and_dropout, kay)
+
         count_expression_matrix = jnp.concatenate(count_matrix_umi_count_format, axis=1)
+
         transpose_count_matrix = count_expression_matrix.T
         # return binary_dropout_indices
         return transpose_count_matrix
