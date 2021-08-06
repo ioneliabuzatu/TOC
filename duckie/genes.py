@@ -23,8 +23,6 @@ class gene:
         self.sergio.global_state = jax.ops.index_update(self.sergio.global_state, jax.ops.index[self.binID, self.ID, self.conc_len], currConc)
         self.conc_len += 1
 
-    def set_scExpression(self, list_indices):
-        """
-        selects input indices from self.Conc and form sc Expression
-        """
-        self.scExpression = self.sergio.global_state[self.binID, self.ID][list_indices]
+    @property
+    def scExpression(self):
+        return self.sergio.global_state[self.binID, self.ID][self.sergio.scIndices_]

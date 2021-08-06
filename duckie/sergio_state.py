@@ -127,7 +127,7 @@ class sergio(object):
                 sys.exit()
 
         self.global_state = np.full((self.nBins_, self.nGenes_, self.sampling_state_ * self.nSC_), np.nan)
-        self.simulation_time = np.zeros(self.nGenes_, dtype=int)
+        self.simulation_time = onp.zeros(self.nGenes_, dtype=int)
 
     def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
         """
@@ -345,16 +345,24 @@ class sergio(object):
         So the inputs are single values instead of list or array. Also, it models repression based on this assumption.
         if decided to make it work on multiple interaction, repression should be taken care as well.
         """
-        if reg_conc == 0:
-            if repressive:
-                return 1
-            else:
-                return 0
-        else:
-            if repressive:
-                return 1 - np.true_divide(np.power(reg_conc, coop_state), (np.power(half_response, coop_state) + np.power(reg_conc, coop_state)))
-            else:
-                return np.true_divide(np.power(reg_conc, coop_state), (np.power(half_response, coop_state) + np.power(reg_conc, coop_state)))
+        # if reg_conc == 0:
+        #     if repressive:
+        #         return 1
+        #     else:
+        #         return 0
+        # else:
+        #     if repressive:
+        #         return 1 - np.true_divide(np.power(reg_conc, coop_state), (np.power(half_response, coop_state) + np.power(reg_conc, coop_state)))
+        #     else:
+        #         return np.true_divide(np.power(reg_conc, coop_state), (np.power(half_response, coop_state) + np.power(reg_conc, coop_state)))
+        num = np.power(reg_conc, coop_state)
+        denom = np.power(half_response, coop_state) + num
+
+        response = np.true_divide(num, denom)
+        is_active = reg_conc == 0.
+        if repressive:
+            response = 1 - response
+        return response + repressive * is_active
 
     def init_gene_bin_conc_(self, level):
         """
@@ -396,66 +404,35 @@ class sergio(object):
                     x0 = np.clip(x0, 0)
                     self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
 
-    def calculate_prod_rate_fast(self, bin_list, level):
-        """
-        calculates production rates for the input list of gene objects in different bins but all associated to a single gene ID
-        """
-        type = bin_list[0].Type
+    def calculate_prod_rate_fast(self, gene_group):
+        type = gene_group[0].Type
+        gg_id = gene_group[0].ID
 
         if type == 'MR':
-            rates = self.graph_[bin_list[0].ID]['rates']
-            assert [gi.binID for gi in bin_list] == list(range(len(bin_list)))
+            rates = self.graph_[gg_id]['rates']
             return np.array(rates)
 
         else:
-            params = self.graph_[bin_list[0].ID]['params']
-            Ks = np.array([np.abs(t[1]) for t in params])
-            regIndices = [t[0] for t in params]
-            binIndices = [gb.binID for gb in bin_list]
-            group_idx = bin_list[0].ID
+            params = self.graph_[gg_id]['params']
+            regIndices, Ks, _a, _b = list(zip(*params))
+            Ks = np.abs(np.array(Ks))
+            # regIndices = [t[0] for t in params]
+            binIndices = [gb.binID for gb in gene_group]
+            group_idx = gene_group[0].ID
             currStep = self.simulation_time[group_idx]
 
             hillMatrix = np.zeros((len(regIndices), self.nBins_))
 
             for tupleIdx, rIdx in enumerate(regIndices):
                 reg_concs = self.global_state[:, rIdx, currStep]
+                half_response, coop_state, repressive = params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0
 
-                for colIdx, bIdx in enumerate(binIndices):
-                    reg_conc = reg_concs[colIdx]
-                    new_state_concentration_gene = self.hill_(reg_conc, params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
-                    hillMatrix = jax.ops.index_update(hillMatrix, jax.ops.index[tupleIdx, colIdx], new_state_concentration_gene)
-
-            return np.matmul(Ks, hillMatrix)
-
-    def calculate_prod_rate_OLD(self, bin_list, level):
-        """
-        calculates production rates for the input list of gene objects in different bins but all associated to a single gene ID
-        """
-        type = bin_list[0].Type
-
-        if type == 'MR':
-            rates = self.graph_[bin_list[0].ID]['rates']
-            return [rates[gb.binID] for gb in bin_list]
-
-        else:
-            params = self.graph_[bin_list[0].ID]['params']
-            Ks = np.array([np.abs(t[1]) for t in params])
-            regIndices = [t[0] for t in params]
-            binIndices = [gb.binID for gb in bin_list]
-            currStep = bin_list[0].conc_len
-
-            hillMatrix = np.zeros((len(regIndices), len(binIndices)))
-
-            for tupleIdx, rIdx in enumerate(regIndices):
-                regGeneLevel = self.gID_to_level_and_idx[rIdx][0]
-                regGeneIdx = self.gID_to_level_and_idx[rIdx][1]
-                regGene_allBins = self.level2verts_[regGeneLevel][regGeneIdx]
-                for colIdx, bIdx in enumerate(binIndices):
-                    new_state_concentration_gene = self.hill_(regGene_allBins[bIdx].Conc[currStep], params[tupleIdx][3],
-                                                              params[tupleIdx][2], params[tupleIdx][1] < 0)
-                    hillMatrix = jax.ops.index_update(
-                        hillMatrix, jax.ops.index[tupleIdx, colIdx], new_state_concentration_gene
-                    )
+                # for colIdx, bIdx in enumerate(binIndices):
+                #     reg_conc = reg_concs[colIdx]
+                #     new_state_concentration_gene = self.hill_(reg_conc, half_response, coop_state, repressive)
+                #     hillMatrix = jax.ops.index_update(hillMatrix, jax.ops.index[tupleIdx, colIdx], new_state_concentration_gene)
+                new_state_concentration_gene = self.hill_(reg_concs, half_response, coop_state, repressive)
+                hillMatrix = jax.ops.index_update(hillMatrix, jax.ops.index[tupleIdx, :], new_state_concentration_gene)
 
             return np.matmul(Ks, hillMatrix)
 
@@ -469,54 +446,57 @@ class sergio(object):
 
         while sim_set:
             delIndicesGenes = []
+            print(self.simulation_time[0])
+            assert self.global_state[~np.isnan(self.global_state)].min() >= 0
 
-            for g_idx, g in enumerate(sim_set):
-                assert self.global_state[~np.isnan(self.global_state)].min() >= 0
-                gID = g[0].ID
-                gIDX = self.gID_to_level_and_idx[gID][1]
-                time = self.simulation_time[gID]
-                currExp = self.global_state[:, gID, time]
+            gg_ids = [gg[0].ID for gg in sim_set]
+            times = self.simulation_time[gg_ids]
 
-                assert len(currExp) == self.nBins_
+            for gene_group_sim_set_id, gene_group in enumerate(sim_set):
+                gene_group_id = gg_ids[gene_group_sim_set_id]
+                time = times[gene_group_sim_set_id]
+
+                gIDX = self.gID_to_level_and_idx[gene_group_id][1]
+                xt = self.global_state[:, gene_group_id, time]
+
+                assert len(xt) == self.nBins_
 
                 # Calculate production rate
-                prod_rate = self.calculate_prod_rate_fast(g, level)
+                prod_rate = self.calculate_prod_rate_fast(gene_group)
 
                 # Calculate decay rate
-                decay = np.multiply(self.decayVector_[gID], currExp)
+                decay = np.multiply(self.decayVector_[gene_group_id], xt)
 
                 # Calculate noise
+                noise = self.calc_noise(xt, decay, gene_group_id, prod_rate)
 
-                noise = self.calc_noise(currExp, decay, gID, prod_rate)
-
-                dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[time, :, gID]
+                dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[time, :, gene_group_id]
                 if np.any(np.isnan(dx)):
                     raise RuntimeError
 
                 delIndices = []
-                idxes = [gi.ID for gi in g]
+                idxes = [gi.ID for gi in gene_group]
                 assert len(set(idxes)) == 1
-                assert [gi.binID for gi in g] == list(range(len(g)))
+                assert [gi.binID for gi in gene_group] == list(range(len(gene_group)))
 
-                group_id = g[0].ID
-                x0 = self.global_state[:, group_id, time]
-                x1 = x0 + dx
-                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_id, time + 1], x1)
-                self.simulation_time = jax.ops.index_add(self.simulation_time, jax.ops.index[group_id], 1)
+                x1 = xt + dx
+                x1 = np.clip(x1, 0)
+                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gene_group_id, time + 1], x1)
 
-                for gi in g:
+                self.simulation_time[gene_group_id] += 1
+
+                for gi in gene_group:
                     if time == nReqSteps:
-                        gi.set_scExpression(self.scIndices_)
                         self.meanExpression = jax.ops.index_update(
-                            self.meanExpression, jax.ops.index[gID, gi.binID], np.mean(gi.scExpression)
+                            self.meanExpression, jax.ops.index[gene_group_id, gi.binID], np.mean(gi.scExpression)
                         )
-                        self.level2verts_[level][gIDX][gi.binID] = g
+                        self.level2verts_[level][gIDX][gi.binID] = gene_group
                         delIndices.append(gi.binID)
 
-                sim_set[g_idx] = [i for j, i in enumerate(g) if j not in delIndices]
+                sim_set[gene_group_sim_set_id] = [i for j, i in enumerate(gene_group) if j not in delIndices]
 
-                if not sim_set[g_idx]:
-                    delIndicesGenes.append(g_idx)
+                if not sim_set[gene_group_sim_set_id]:
+                    delIndicesGenes.append(gene_group_sim_set_id)
 
             sim_set = [i for j, i in enumerate(sim_set) if j not in delIndicesGenes]
 
