@@ -9,12 +9,12 @@ from duckie.src.envs import EnvControlSteadyState
 def main_control_steady_state():
     start = time.time()
     env_steady_state = EnvControlSteadyState(
-        number_genes=100,  # Features
-        number_bins=2,  # Number of cell types
-        number_sc=2,  # 0,  # 300,  # Number of single cells for which expression is simulated
+        number_genes=100,
+        number_bins=2,
+        number_sc=2,
         noise_params=1,
         decays=0.8,
-        sampling_state=3,  # 15,
+        sampling_state=3,
         noise_type='dpd',
         input_file_targets="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4.txt",
         input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",

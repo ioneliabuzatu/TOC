@@ -6,9 +6,8 @@ import pandas as pd
 
 
 class EnvControlSteadyState(object):
-    def __init__(self, number_genes, number_bins, number_sc, noise_params, decays, sampling_state, noise_type,
-                 input_file_targets, input_file_regs,
-                 shared_coop_state):
+    def __init__(self, number_genes, number_bins, number_sc, noise_params, decays, sampling_state,
+                 noise_type, input_file_targets, input_file_regs, shared_coop_state):
         self.env = duckie.sergio_control.sergio(
             number_genes=number_genes,
             number_bins=number_bins,
@@ -58,18 +57,29 @@ class EnvControlSteadyState(object):
         return transpose_count_matrix
 
 
-class EnvDifferentiationDynamics:
-    def __init__(self, bmat_file, input_file_targets, input_file_regs, shared_coop_state):
-        df = pd.read_csv(bmat_file, sep='\t', header=None, index_col=None)
-        bMat = df.values
-        self.env = duckie.sergio_control.sergio(number_genes=100, number_bins=6, number_sc=10, noise_params=0.2,
-                                                decays=0.8,
-                                                sampling_state=1,
-                                                noise_params_splice=0.07, noise_type='dpd', dynamics=True,
-                                                bifurcation_matrix=bMat)
+class EnvControlDynamics:
+    def __init__(self,
+                 number_genes: int,
+                 number_bins: int,
+                 number_sc,
+                 noise_params,
+                 decays,
+                 sampling_state,
+                 noise_type,
+                 input_file_targets: str,
+                 input_file_regs: str,
+                 bmat_file: str,
+                 shared_coop_state
+                 ):
+
+        bMat = pd.read_csv(bmat_file, sep='\t', header=None, index_col=None).values
+        self.env = duckie.sergio_control.sergio(number_genes=number_genes, number_bins=number_bins,
+                                                number_sc=number_sc, noise_params=noise_params, decays=decays,
+                                                sampling_state=sampling_state, noise_params_splice=0.07,
+                                                noise_type=noise_type, dynamics=True, bifurcation_matrix=bMat)
         self.env.build_graph(input_file_targets, input_file_regs, shared_coop_state)
 
-    def step(self, ignore_technical_noise=False) -> tuple:
+    def step(self, actions, ignore_technical_noise=False) -> tuple:
         self.simulate_dynamics()
         exprU, exprS = self.get_expression_dynamics()
         if ignore_technical_noise:

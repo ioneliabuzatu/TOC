@@ -7,7 +7,6 @@ import jax.numpy as jnp
 import jax.ops
 import jax.random
 import networkx as nx
-import numpy as np
 import numpy as onp
 
 from duckie.genes import Gene as gene
@@ -100,7 +99,7 @@ class sergio(object):
             raise Exception("Error: expect one decay parameter per gene")
 
         if self.dyn_:
-            if (self.bifurcationMat_ == None).any():
+            if self.bifurcationMat_ == None:
                 print("Error: Bifurcation Matrix is missing")
                 sys.exit()
 
@@ -528,7 +527,7 @@ class sergio(object):
         #ToDo: Consider re-coding find_levels_ with networkx
         """
 
-        bifGraphNX = nx.DiGraph(bifurcation_matrix)
+        bifGraphNX = nx.DiGraph(onp.asarray(bifurcation_matrix))
         try:
             self.binOrders_ = list(nx.topological_sort(bifGraphNX))
         except:
