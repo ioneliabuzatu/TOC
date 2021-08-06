@@ -339,30 +339,16 @@ class sergio(object):
                     c += 1
             # Else: g is a master regulator and does not need half response
 
-    def hill_(self, reg_conc, half_response, coop_state, repressive=False):
-        """
-        So far, hill function was used in the code to model 1 interaction at a time.
-        So the inputs are single values instead of list or array. Also, it models repression based on this assumption.
-        if decided to make it work on multiple interaction, repression should be taken care as well.
-        """
-        # if reg_conc == 0:
-        #     if repressive:
-        #         return 1
-        #     else:
-        #         return 0
-        # else:
-        #     if repressive:
-        #         return 1 - np.true_divide(np.power(reg_conc, coop_state), (np.power(half_response, coop_state) + np.power(reg_conc, coop_state)))
-        #     else:
-        #         return np.true_divide(np.power(reg_conc, coop_state), (np.power(half_response, coop_state) + np.power(reg_conc, coop_state)))
-        num = np.power(reg_conc, coop_state)
-        denom = np.power(half_response, coop_state) + num
+    def hill_(self, reg_conc, half_response, coop_state, repressive):
+        num_incoming_edges, num_bins = reg_conc.shape  # or is it outgoing?
+        assert half_response.shape == coop_state.shape == repressive.shape == (num_incoming_edges,)
+        num = np.power(reg_conc.T, coop_state)
+        denom = np.power(half_response.T, coop_state) + num
 
         response = np.true_divide(num, denom)
-        is_active = reg_conc == 0.
-        if repressive:
-            response = 1 - response
-        return response + repressive * is_active
+        is_active = reg_conc.astype(bool)
+        response = jax.ops.index_update(response, jax.ops.index[:, repressive], 1 - response[:, repressive])
+        return response + repressive * (~is_active).T
 
     def init_gene_bin_conc_(self, level):
         """
@@ -388,21 +374,18 @@ class sergio(object):
             else:
                 params = self.graph_[g[0].ID]['params']
 
-                for bIdx in range(self.nBins_):
-                    rate = 0
-                    for interTuple in params:
-                        gene_id, magnitude, coop_state, half_response = interTuple
-                        repressive = magnitude < 0
+                gene_ids, magnitudes, coop_states, half_responses = [np.array(a) for a in zip(*params)]
+                # for interTuple in params:
+                #     gene_id, magnitude, coop_state, half_response = interTuple
+                repressives = magnitudes < 0
+                meanExp = self.meanExpression[gene_ids, :]
+                rates = np.abs(magnitudes) * self.hill_(meanExp, half_responses, coop_states, repressives)
+                gg_rate = rates.sum(1)
+                decay = self.decayVector_[g[0].ID]
 
-                        meanExp = self.meanExpression[gene_id, bIdx]
-                        rate += np.abs(magnitude) * self.hill_(meanExp, half_response, coop_state, repressive)
-
-                    gi = g[bIdx]
-
-                    x0 = np.true_divide(rate, self.decayVector_[g[0].ID])
-
-                    x0 = np.clip(x0, 0)
-                    self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
+                x0 = np.true_divide(gg_rate, decay)
+                x0 = np.clip(x0, 0)
+                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
 
     def calculate_prod_rate_fast(self, gene_group):
         type = gene_group[0].Type
@@ -414,27 +397,14 @@ class sergio(object):
 
         else:
             params = self.graph_[gg_id]['params']
-            regIndices, Ks, _a, _b = list(zip(*params))
-            Ks = np.abs(np.array(Ks))
-            # regIndices = [t[0] for t in params]
-            binIndices = [gb.binID for gb in gene_group]
+            regIndices, Ks, coop_states, half_responses = [np.array(a) for a in zip(*params)]
             group_idx = gene_group[0].ID
             currStep = self.simulation_time[group_idx]
 
-            hillMatrix = np.zeros((len(regIndices), self.nBins_))
-
-            for tupleIdx, rIdx in enumerate(regIndices):
-                reg_concs = self.global_state[:, rIdx, currStep]
-                half_response, coop_state, repressive = params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0
-
-                # for colIdx, bIdx in enumerate(binIndices):
-                #     reg_conc = reg_concs[colIdx]
-                #     new_state_concentration_gene = self.hill_(reg_conc, half_response, coop_state, repressive)
-                #     hillMatrix = jax.ops.index_update(hillMatrix, jax.ops.index[tupleIdx, colIdx], new_state_concentration_gene)
-                new_state_concentration_gene = self.hill_(reg_concs, half_response, coop_state, repressive)
-                hillMatrix = jax.ops.index_update(hillMatrix, jax.ops.index[tupleIdx, :], new_state_concentration_gene)
-
-            return np.matmul(Ks, hillMatrix)
+            reg_concs = self.global_state[:, regIndices, currStep]
+            repressives = Ks < 0
+            new_state_concentration = self.hill_(reg_concs.T, half_responses, coop_states, repressives)
+            return np.matmul(np.abs(Ks), new_state_concentration.T)
 
     def CLE_simulator_(self, level):
         self.calculate_half_response_(level)
@@ -443,6 +413,8 @@ class sergio(object):
         nReqSteps = self.calculate_required_steps_(level)
         sim_set = np.copy(self.level2verts_[level]).tolist()
         print(f"There are {str(len(sim_set))} genes to simulate in this layer")
+
+        pdt = np.power(self.dt_, 0.5)
 
         while sim_set:
             delIndicesGenes = []
@@ -470,9 +442,8 @@ class sergio(object):
                 # Calculate noise
                 noise = self.calc_noise(xt, decay, gene_group_id, prod_rate)
 
-                dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[time, :, gene_group_id]
-                if np.any(np.isnan(dx)):
-                    raise RuntimeError
+                dx = self.dt_ * (prod_rate - decay) + pdt * noise + self.actions[time, :, gene_group_id]
+                assert not np.any(np.isnan(dx))
 
                 delIndices = []
                 idxes = [gi.ID for gi in gene_group]
@@ -523,6 +494,7 @@ class sergio(object):
             amplitude_d = np.multiply(self.noiseParamsVector_[gID], np.power(decay, 0.5))
 
             noise = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
+        assert not np.any(np.isnan(noise))
         return noise
 
     def simulate(self, actions):
