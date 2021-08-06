@@ -34,3 +34,7 @@ class gene:
     def Conc(self):
         state_conc = self.sergio.global_state[self.binID, self.ID, :self.conc_len]
         return state_conc
+
+    @property
+    def idx(self):
+        return jax.ops.index[self.binID, self.ID, self.conc_len]

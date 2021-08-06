@@ -126,7 +126,7 @@ class sergio(object):
                 print("Error: expect one splicing ratio parameter per gene")
                 sys.exit()
 
-        self.global_state = np.full((self.nBins_, self.nGenes_, self.sampling_state_ * self.nSC_), -1.)
+        self.global_state = np.full((self.nBins_, self.nGenes_, self.sampling_state_ * self.nSC_), np.nan)
         self.simulation_time = 0
 
     def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
@@ -368,11 +368,8 @@ class sergio(object):
             if g[0].Type == 'MR':
                 allBinRates = self.graph_[g[0].ID]['rates']
 
-                for bIdx, rate in enumerate(allBinRates):
-                    x0 = np.true_divide(rate, self.decayVector_[g[0].ID])
-
-                    gi = g[bIdx]
-                    self.update_gene(gi, x0)
+                x0 = np.true_divide(np.array(allBinRates), self.decayVector_[g[0].ID])
+                self.update_genes(g, x0)
 
             else:
                 params = self.graph_[g[0].ID]['params']
@@ -380,8 +377,11 @@ class sergio(object):
                 for bIdx in range(self.nBins_):
                     rate = 0
                     for interTuple in params:
-                        meanExp = self.meanExpression[interTuple[0], bIdx]
-                        rate += np.abs(interTuple[1]) * self.hill_(meanExp, interTuple[3], interTuple[2], interTuple[1] < 0)
+                        gene_id, magnitude, coop_state, half_response = interTuple
+                        repressive =  magnitude < 0
+
+                        meanExp = self.meanExpression[gene_id, bIdx]
+                        rate += np.abs(magnitude) * self.hill_(meanExp, half_response, coop_state, repressive)
 
                     gi = g[bIdx]
 
@@ -396,7 +396,7 @@ class sergio(object):
 
         if type == 'MR':
             rates = self.graph_[bin_list[0].ID]['rates']
-            return [rates[gb.binID] for gb in bin_list]
+            return [rates[gb.binID] for gb in bin_list]  # TODO: remove loop
 
         else:
             params = self.graph_[bin_list[0].ID]['params']
@@ -455,19 +455,19 @@ class sergio(object):
 
         nReqSteps = self.calculate_required_steps_(level)
         sim_set = np.copy(self.level2verts_[level]).tolist()
-        print("There are " + str(len(sim_set)) + " genes to simulate in this layer")
+        print(f"There are {str(len(sim_set))} genes to simulate in this layer")
 
-        while sim_set != []:
+        while sim_set:
             delIndicesGenes = []
 
-            for gi, g in enumerate(sim_set):
+            for g_idx, g in enumerate(sim_set):
                 gID = g[0].ID
                 gIDX = self.gID_to_level_and_idx[gID][1]
                 currExp = np.array([gb.Conc[-1] for gb in g], dtype=np.float32)
                 assert len(currExp) == self.nBins_
 
                 # Calculate production rate
-                prod_rate = np.array(self.calculate_prod_rate_OLD(g, level))  # 1 * #currBins
+                prod_rate = np.array(self.calculate_prod_rate_fast(g, level))  # 1 * #currBins
 
                 # Calculate decay rate
                 decay = np.multiply(self.decayVector_[gID], currExp)
@@ -477,38 +477,64 @@ class sergio(object):
                 noise = self.calc_noise(currExp, decay, gID, prod_rate)
 
                 dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[self.simulation_time, :, gID]
+                if np.any(np.isnan(dx)):
+                    raise RuntimeError
 
                 delIndices = []
-                for bIDX, gObj in enumerate(g):
-                    assert self.simulation_time == gObj.conc_len - 1
-                    assert bIDX == gObj.binID
+                bIdx = None
+                idxes = [gi.ID for gi in g]
+                times = [gi.conc_len for gi in g]
+                assert len(set(idxes)) == 1
+                assert len(set(times)) == 1
+                assert [gi.binID for gi in g] == list(range(len(g)))
+                # for bIDX, gObj in enumerate(g):
+                # assert self.simulation_time == gObj.conc_len - 1
+                # assert bIDX == gObj.binID
 
-                    binID = gObj.binID
-                    # dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[time_step, :, gID]
-                    dxi = dx[gObj.binID]
+                # binID = gObj.binID
+                # dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[time_step, :, gID]
+                # dxi = dx
 
-                    x1 = gObj.Conc[-1] + dxi
-                    self.update_gene(gObj, x1)
+                group_id = g[0].ID
+                time = g[0].conc_len - 1
+                x0 = self.global_state[:, group_id, time]
+                x1 = x0 + dx
+                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_id, time + 1], x1)
 
-                    if gObj.conc_len == nReqSteps:
-                        gObj.set_scExpression(self.scIndices_)
+                for gi in g:
+                    gi.conc_len += 1
+                    if time == nReqSteps:
+                        gi.set_scExpression(self.scIndices_)
                         self.meanExpression = jax.ops.index_update(
-                            self.meanExpression, jax.ops.index[gID, binID], np.mean(gObj.scExpression))
-                        self.level2verts_[level][gIDX][binID] = gObj
-                        delIndices.append(bIDX)
+                            self.meanExpression, jax.ops.index[gID, gi.binID], np.mean(gi.scExpression)
+                        )
+                        self.level2verts_[level][gIDX][gi.binID] = g
+                        delIndices.append(gi.binID)
 
-                sim_set[gi] = [i for j, i in enumerate(g) if j not in delIndices]
+                sim_set[g_idx] = [i for j, i in enumerate(g) if j not in delIndices]
 
-                if not sim_set[gi]:
-                    delIndicesGenes.append(gi)
+                if not sim_set[g_idx]:
+                    delIndicesGenes.append(g_idx)
 
             sim_set = [i for j, i in enumerate(sim_set) if j not in delIndicesGenes]
             self.simulation_time += 1
 
     def update_gene(self, gObj, x1):
+        print(gObj.idx)
         x0 = np.clip(x1, 0)
-        self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[gObj.binID, gObj.ID, gObj.conc_len], x0)
+        self.global_state = jax.ops.index_update(self.global_state, gObj.idx, x0)
         gObj.conc_len += 1
+
+    def update_genes(self, genes, x1):
+        x0 = np.clip(x1, 0)
+
+        print(genes[0].idx)
+        group_idx = genes[0].ID
+        time = genes[0].conc_len
+
+        self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
+        for gi in genes:
+            gi.conc_len += 1
 
     def calc_noise(self, currExp, decay, gID, prod_rate):
         if self.noiseType_ == 'sp':
@@ -538,7 +564,7 @@ class sergio(object):
     def simulate(self, actions):
         self.actions = actions
         for level in range(self.maxLevels_, -1, -1):
-            self.simulation_time = 0 # TODO: meh
+            self.simulation_time = 0  # TODO: meh
             print("Start simulating new level")
             self.CLE_simulator_(level)
             print("Done with current level")
@@ -549,8 +575,8 @@ class sergio(object):
         return self.global_state[:, :, self.scIndices_]
 
     """""""""""""""""""""""""""""""""""""""
-    "" Here is the functionality we need for dynamics simulations
-    """""""""""""""""""""""""""""""""""""""
+        "" Here is the functionality we need for dynamics simulations
+        """""""""""""""""""""""""""""""""""""""
 
     def find_bin_order_(self, bifurcation_matrix):
         """
@@ -856,8 +882,8 @@ class sergio(object):
         return ret, ret_S
 
     """""""""""""""""""""""""""""""""""""""
-    "" This part is to add technical noise
-    """""""""""""""""""""""""""""""""""""""
+        "" This part is to add technical noise
+        """""""""""""""""""""""""""""""""""""""
 
     def outlier_effect(self, scData, outlier_prob, mean, scale):
         """
@@ -941,8 +967,8 @@ class sergio(object):
         return np.random.poisson(scData)
 
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""
-    "" This part is to add technical noise to dynamics data
-    """""""""""""""""""""""""""""""""""""""""""""""""""""""""
+        "" This part is to add technical noise to dynamics data
+        """""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
     def outlier_effect_dynamics(self, U_scData, S_scData, outlier_prob, mean, scale):
         """
