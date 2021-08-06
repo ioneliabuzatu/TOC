@@ -127,7 +127,7 @@ class sergio(object):
                 sys.exit()
 
         self.global_state = np.full((self.nBins_, self.nGenes_, self.sampling_state_ * self.nSC_), np.nan)
-        self.simulation_time = 0
+        self.simulation_time = np.zeros(self.nGenes_, dtype=int)
 
     def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
         """
@@ -365,11 +365,17 @@ class sergio(object):
 
         currGenes = self.level2verts_[level]
         for g in currGenes:
+            group_idx = g[0].ID
+            time = self.simulation_time[group_idx]
+            assert time == 0
+
             if g[0].Type == 'MR':
                 allBinRates = self.graph_[g[0].ID]['rates']
 
                 x0 = np.true_divide(np.array(allBinRates), self.decayVector_[g[0].ID])
-                self.update_genes(g, x0)
+
+                x0 = np.clip(x0, 0)
+                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
 
             else:
                 params = self.graph_[g[0].ID]['params']
@@ -378,7 +384,7 @@ class sergio(object):
                     rate = 0
                     for interTuple in params:
                         gene_id, magnitude, coop_state, half_response = interTuple
-                        repressive =  magnitude < 0
+                        repressive = magnitude < 0
 
                         meanExp = self.meanExpression[gene_id, bIdx]
                         rate += np.abs(magnitude) * self.hill_(meanExp, half_response, coop_state, repressive)
@@ -386,7 +392,9 @@ class sergio(object):
                     gi = g[bIdx]
 
                     x0 = np.true_divide(rate, self.decayVector_[g[0].ID])
-                    self.update_gene(gi, x0)
+
+                    x0 = np.clip(x0, 0)
+                    self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
 
     def calculate_prod_rate_fast(self, bin_list, level):
         """
@@ -396,14 +404,16 @@ class sergio(object):
 
         if type == 'MR':
             rates = self.graph_[bin_list[0].ID]['rates']
-            return [rates[gb.binID] for gb in bin_list]  # TODO: remove loop
+            assert [gi.binID for gi in bin_list] == list(range(len(bin_list)))
+            return np.array(rates)
 
         else:
             params = self.graph_[bin_list[0].ID]['params']
             Ks = np.array([np.abs(t[1]) for t in params])
             regIndices = [t[0] for t in params]
             binIndices = [gb.binID for gb in bin_list]
-            currStep = bin_list[0].conc_len - 1
+            group_idx = bin_list[0].ID
+            currStep = self.simulation_time[group_idx]
 
             hillMatrix = np.zeros((len(regIndices), self.nBins_))
 
@@ -461,13 +471,16 @@ class sergio(object):
             delIndicesGenes = []
 
             for g_idx, g in enumerate(sim_set):
+                assert self.global_state[~np.isnan(self.global_state)].min() >= 0
                 gID = g[0].ID
                 gIDX = self.gID_to_level_and_idx[gID][1]
-                currExp = np.array([gb.Conc[-1] for gb in g], dtype=np.float32)
+                time = self.simulation_time[gID]
+                currExp = self.global_state[:, gID, time]
+
                 assert len(currExp) == self.nBins_
 
                 # Calculate production rate
-                prod_rate = np.array(self.calculate_prod_rate_fast(g, level))  # 1 * #currBins
+                prod_rate = self.calculate_prod_rate_fast(g, level)
 
                 # Calculate decay rate
                 decay = np.multiply(self.decayVector_[gID], currExp)
@@ -476,33 +489,22 @@ class sergio(object):
 
                 noise = self.calc_noise(currExp, decay, gID, prod_rate)
 
-                dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[self.simulation_time, :, gID]
+                dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[time, :, gID]
                 if np.any(np.isnan(dx)):
                     raise RuntimeError
 
                 delIndices = []
-                bIdx = None
                 idxes = [gi.ID for gi in g]
-                times = [gi.conc_len for gi in g]
                 assert len(set(idxes)) == 1
-                assert len(set(times)) == 1
                 assert [gi.binID for gi in g] == list(range(len(g)))
-                # for bIDX, gObj in enumerate(g):
-                # assert self.simulation_time == gObj.conc_len - 1
-                # assert bIDX == gObj.binID
-
-                # binID = gObj.binID
-                # dx = self.dt_ * (prod_rate - decay) + np.power(self.dt_, 0.5) * noise + self.actions[time_step, :, gID]
-                # dxi = dx
 
                 group_id = g[0].ID
-                time = g[0].conc_len - 1
                 x0 = self.global_state[:, group_id, time]
                 x1 = x0 + dx
                 self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_id, time + 1], x1)
+                self.simulation_time = jax.ops.index_add(self.simulation_time, jax.ops.index[group_id], 1)
 
                 for gi in g:
-                    gi.conc_len += 1
                     if time == nReqSteps:
                         gi.set_scExpression(self.scIndices_)
                         self.meanExpression = jax.ops.index_update(
@@ -517,24 +519,6 @@ class sergio(object):
                     delIndicesGenes.append(g_idx)
 
             sim_set = [i for j, i in enumerate(sim_set) if j not in delIndicesGenes]
-            self.simulation_time += 1
-
-    def update_gene(self, gObj, x1):
-        print(gObj.idx)
-        x0 = np.clip(x1, 0)
-        self.global_state = jax.ops.index_update(self.global_state, gObj.idx, x0)
-        gObj.conc_len += 1
-
-    def update_genes(self, genes, x1):
-        x0 = np.clip(x1, 0)
-
-        print(genes[0].idx)
-        group_idx = genes[0].ID
-        time = genes[0].conc_len
-
-        self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
-        for gi in genes:
-            gi.conc_len += 1
 
     def calc_noise(self, currExp, decay, gID, prod_rate):
         if self.noiseType_ == 'sp':
@@ -564,7 +548,6 @@ class sergio(object):
     def simulate(self, actions):
         self.actions = actions
         for level in range(self.maxLevels_, -1, -1):
-            self.simulation_time = 0  # TODO: meh
             print("Start simulating new level")
             self.CLE_simulator_(level)
             print("Done with current level")

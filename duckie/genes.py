@@ -14,7 +14,6 @@ class gene:
         self.sergio = sergio
         self.Type = geneType
         self.binID = binID
-        self.conc_len = 0
         self.converged_ = False
         self.converged_S_ = False
 
@@ -28,13 +27,4 @@ class gene:
         """
         selects input indices from self.Conc and form sc Expression
         """
-        self.scExpression = np.array(self.Conc)[list_indices]
-
-    @property
-    def Conc(self):
-        state_conc = self.sergio.global_state[self.binID, self.ID, :self.conc_len]
-        return state_conc
-
-    @property
-    def idx(self):
-        return jax.ops.index[self.binID, self.ID, self.conc_len]
+        self.scExpression = self.sergio.global_state[self.binID, self.ID][list_indices]
