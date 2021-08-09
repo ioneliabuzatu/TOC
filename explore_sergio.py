@@ -54,10 +54,11 @@ if __name__ == "__main__":
     input_file_regs = "scenic-sergio/data/toy-from-real/regulons.txt"
     bifurcation_matrix = "scenic-sergio/data/toy-from-real/bifurcation_matrix.tab"
 
+    steady_state(input_file_taregts_steady_state, input_file_regs_steady_state, num_cell_types=2, num_genes=100)
     # steady_state(input_file_taregts, input_file_regs, num_cell_types=1, num_genes=12)
     # differentiated_states(bifurcation_matrix, input_file_taregts, input_file_regs, num_cell_types=1, num_genes=12)
-    differentiated_states(bifurcation_matrix_dynamics, input_file_taregts_dynamics, input_file_regs_dynamics,
-                          num_cell_types=6,
-                          num_genes=100)
+    # differentiated_states(bifurcation_matrix_dynamics, input_file_taregts_dynamics, input_file_regs_dynamics,
+    #                       num_cell_types=6,
+    #                       num_genes=100)
 
     print(f"Took {time.time() - start:.4f} sec.")
