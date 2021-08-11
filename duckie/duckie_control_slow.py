@@ -3,8 +3,7 @@ import time
 import jax
 import jax.numpy as np
 
-from duckie.duckie import Ducky
-
+from duckie import Ducky
 
 
 def main_control_steady_state():
