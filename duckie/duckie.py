@@ -7,8 +7,8 @@ import networkx as nx
 import numpy as onp
 import tqdm
 
-import duckie.constants as c
-import duckie.genes
+import constants as c
+import genes
 
 # TODO these have to be removed to allow jax to calculate the correct gradients
 np.int = int
@@ -247,12 +247,12 @@ class Ducky:
                 graph[v]['level'] = currLayer
                 U.add(v)
                 if {v}.issubset(self.master_regulators_idx_):
-                    allBinList = [duckie.genes.Gene(v, 'MR', i) for i in range(self.num_cell_types)]
+                    allBinList = [genes.Gene(v, 'MR', i) for i in range(self.num_cell_types)]
                     self.levels_to_vertices[currLayer].append(allBinList)
                     self.gene_id_to_level_and_idx[v] = (currLayer, idx)
                     idx += 1
                 else:
-                    allBinList = [duckie.genes.Gene(v, 'T', i) for i in range(self.num_cell_types)]
+                    allBinList = [genes.Gene(v, 'T', i) for i in range(self.num_cell_types)]
                     self.levels_to_vertices[currLayer].append(allBinList)
                     self.gene_id_to_level_and_idx[v] = (currLayer, idx)
                     idx += 1
@@ -312,7 +312,7 @@ class Ducky:
 
         """
         assert params.shape[1:] == (4,)
-        assert reg_conc.shape[1:] == (9,)
+        assert reg_conc.shape[1:] == (self.num_cell_types,)
         _, contribution, coop_state, half_response = params.T
         repressive = contribution < 0
 
@@ -538,18 +538,31 @@ class Ducky:
             print("Start simulating new level")
             self.CLE_simulator_(level)
             print("Done with current level")
+        return self.get_last_state()
+
+    def getExpressions(self):
+        ret = np.zeros((self.num_cell_types, self.num_genes, self.num_cells))
+        for l in range(self.max_levels + 1):
+            currGeneBins = self.levels_to_vertices[l]
+            for g in currGeneBins:
+                gIdx = g[0].ID
+
+                for gb in g:
+                    ret = jax.ops.index_update(ret, jax.ops.index[gb.binID, gIdx, :], gb.scExpression)
+
+        return ret
 
     def get_last_state(self):
-        if __debug__:
-            ret = onp.zeros((self.num_cell_types, self.num_genes, self.num_cells))
-            for currGeneBins in self.levels_to_vertices.values():
-                for gene_group in currGeneBins:
-                    group_id = gene_group[0].ID
+        # if __debug__:
+        #     ret = onp.zeros((self.num_cell_types, self.num_genes, self.num_cells))
+        #     for currGeneBins in self.levels_to_vertices.values():
+        #         for gene_group in currGeneBins:
+        #             group_id = gene_group[0].ID
+        #
+        #             for gb in gene_group:
+        #                 ret[gb.cell_type, group_id, :] = gb.scExpression
 
-                    for gb in gene_group:
-                        ret[gb.cell_type, group_id, :] = gb.scExpression
-
-        assert np.all(self.system_state[:, :, self.scIndices_] == np.array(ret))
+        # assert np.all(self.system_state[:, :, self.scIndices_] == np.array(ret))
         return self.system_state[:, :, -1]
 
     """""""""""""""""""""""""""""""""""""""
