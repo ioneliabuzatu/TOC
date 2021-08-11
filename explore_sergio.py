@@ -33,15 +33,15 @@ def differentiated_states(bmat_filepath, targets_filepath, regs_filepath, number
     sim.build_graph(input_file_taregts=targets_filepath, input_file_regs=regs_filepath, shared_coop_state=2)
     sim.simulate_dynamics()
     exprU, exprS = sim.getExpressions_dynamics()
-    # exprU_O, exprS_O = sim.outlier_effect_dynamics(exprU, exprS, outlier_prob=0.01, mean=0.8, scale=1)
-    # libFactor, exprU_O_L, exprS_O_L = sim.lib_size_effect_dynamics(exprU_O, exprS_O, mean=4.6, scale=0.4)
-    # binary_indU, binary_indS = sim.dropout_indicator_dynamics(exprU_O_L, exprS_O_L, shape=6.5, percentile=82)
-    # exprU_O_L_D = np.multiply(binary_indU, exprU_O_L)
-    # exprS_O_L_D = np.multiply(binary_indS, exprS_O_L)
-    # count_matrix_U, count_matrix_S = sim.convert_to_UMIcounts_dynamics(exprU_O_L_D, exprS_O_L_D)
-    # count_matrix_U = np.concatenate(count_matrix_U, axis=1)
-    # count_matrix_S = np.concatenate(count_matrix_S, axis=1)
-    # return count_matrix_U, count_matrix_S
+    exprU_O, exprS_O = sim.outlier_effect_dynamics(exprU, exprS, outlier_prob=0.01, mean=0.8, scale=1)
+    libFactor, exprU_O_L, exprS_O_L = sim.lib_size_effect_dynamics(exprU_O, exprS_O, mean=4.6, scale=0.4)
+    binary_indU, binary_indS = sim.dropout_indicator_dynamics(exprU_O_L, exprS_O_L, shape=6.5, percentile=82)
+    exprU_O_L_D = np.multiply(binary_indU, exprU_O_L)
+    exprS_O_L_D = np.multiply(binary_indS, exprS_O_L)
+    count_matrix_U, count_matrix_S = sim.convert_to_UMIcounts_dynamics(exprU_O_L_D, exprS_O_L_D)
+    count_matrix_U = np.concatenate(count_matrix_U, axis=1)
+    count_matrix_S = np.concatenate(count_matrix_S, axis=1)
+    return count_matrix_U, count_matrix_S
 
 
 if __name__ == "__main__":
