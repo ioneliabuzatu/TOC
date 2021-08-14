@@ -12,7 +12,8 @@ class gene:
 
         self.ID = geneID
         self.sergio = sergio
-        self.Type = geneType
+        # self.Type = geneType
+        self.is_master_regulator = geneType == "MR"
         self.binID = binID
         self.converged_ = False
         self.converged_S_ = False

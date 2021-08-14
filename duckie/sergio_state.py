@@ -2,6 +2,7 @@ import collections
 import csv
 import sys
 
+import jax.numpy as jnp
 import jax.numpy as np
 import jax.ops
 import networkx as nx
@@ -128,6 +129,7 @@ class sergio(object):
 
         self.global_state = np.full((self.nBins_, self.nGenes_, self.sampling_state_ * self.nSC_), np.nan)
         self.simulation_time = onp.zeros(self.nGenes_, dtype=int)
+        self.params_half_response = None
 
     def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
         """
@@ -154,12 +156,20 @@ class sergio(object):
 
         allRegs = []
         allTargets = []
+        self.params = {}
+        self.rates = onp.full((self.nGenes_, self.nBins_,), np.nan)
+        self.params_k = onp.full((self.nGenes_, self.nGenes_), np.nan)
+        self.params_shared_coop_state = onp.full((self.nGenes_, self.nGenes_), np.nan)
+        self.params_half_response = onp.full((self.nGenes_, self.nGenes_), np.nan)
+        self._targets = collections.defaultdict(list)
+        self._targets_reverse = collections.defaultdict(list)
 
         with open(input_file_taregts, 'r') as f:
             reader = csv.reader(f, delimiter=',')
-            if (shared_coop_state <= 0):
+            if shared_coop_state <= 0:
+                raise NotImplemented("Not tested yet")
                 for row in reader:
-                    nRegs = np.int(row[1])
+                    nRegs = int(row[1])
                     ##################### Raise Error ##########################
                     if nRegs == 0:
                         print("Error: a master regulator (#Regs = 0) appeared in input")
@@ -184,44 +194,51 @@ class sergio(object):
                     #        binDict[b].append(gene(np.int(row[0]),'T', b))
             else:
                 for indRow, row in enumerate(reader):
-                    nRegs = np.int(np.float(row[1]))
-                    ##################### Raise Error ##########################
+                    nRegs = int(float(row[1]))
+
                     if nRegs == 0:
-                        print("Error: a master regulator (#Regs = 0) appeared in input")
-                        sys.exit()
-                        ############################################################
+                        raise Exception("Error: a master regulator (#Regs = 0) appeared in input")
 
-                    currInteraction = []
                     currParents = []
-                    for regId, K, in zip(row[2: 2 + nRegs], row[2 + nRegs: 2 + 2 * nRegs]):
-                        currInteraction.append((np.int(np.float(regId)), np.float(K), shared_coop_state, 0))  # last zero shows half-response, it is modified in another method
-                        allRegs.append(np.int(np.float(regId)))
-                        currParents.append(np.int(np.float(regId)))
-                        self.graph_[np.int(np.float(regId))]['targets'].append(np.int(np.float(row[0])))
+                    currInteraction = []
+                    row0 = int(float(row[0]))
 
-                    self.graph_[np.int(np.float(row[0]))]['params'] = currInteraction
-                    self.graph_[np.int(np.float(row[0]))]['regs'] = currParents
-                    self.graph_[np.int(np.float(row[0]))]['level'] = -1  # will be modified later
-                    allTargets.append(np.int(np.float(row[0])))
+                    for regId, K, in zip(row[2: 2 + nRegs], row[2 + nRegs: 2 + 2 * nRegs]):
+                        regId = int(float(regId))
+                        # currInteraction.append((regId, float(K), shared_coop_state, onp.nan))  # last zero shows half-response, it is modified in another method
+
+                        currInteraction.append((regId, float(K), shared_coop_state, onp.nan))  # last zero shows half-response, it is modified in another method
+                        self.params_k[row0, regId] = float(K)
+                        self.params_shared_coop_state[row0, regId] = shared_coop_state
+                        self.params_half_response[row0, regId] = 0.
+
+                        allRegs.append(regId)
+                        currParents.append(regId)
+                        self._targets[regId].append(row0)
+                        self._targets_reverse[row0].append(regId)
+                        self.graph_[regId]['targets'].append(row0)
+
+                    self.params[row0] = currInteraction
+                    self.graph_[row0]['regs'] = currParents
+                    self.graph_[row0]['level'] = -1  # will be modified later
+                    allTargets.append(row0)
 
                     # if self.dyn_:
                     #    for b in range(self.nBins_):
                     #        binDict[b].append(gene(np.int(row[0]),'T', b))
 
         # self.master_regulators_idx_ = set(np.setdiff1d(allRegs, allTargets))
-
         with open(input_file_regs, 'r') as f:
             masterRegs = []
-            reader = csv.reader(f, delimiter=',')
-            for row in reader:
+            for row in csv.reader(f, delimiter=','):
+                row0 = int(float(row[0]))
                 if np.shape(row)[0] != self.nBins_ + 1:
-                    print("Error: Inconsistent number of bins")
-                    sys.exit()
+                    raise Exception("Error: Inconsistent number of bins")
 
-                masterRegs.append(int(float(row[0])))
-                self.graph_[int(float(row[0]))]['rates'] = [np.float(i) for i in row[1:]]
-                self.graph_[int(float(row[0]))]['regs'] = []
-                self.graph_[int(float(row[0]))]['level'] = -1
+                masterRegs.append(row0)
+                self.rates[row0] = [float(i) for i in row[1:]]
+                self.graph_[row0]['regs'] = []
+                self.graph_[row0]['level'] = -1
 
                 # if self.dyn_:
                 #    for b in range(self.nBins_):
@@ -229,16 +246,19 @@ class sergio(object):
 
         self.master_regulators_idx_ = set(masterRegs)
 
-        if (len(self.master_regulators_idx_) + np.shape(allTargets)[0] != self.nGenes_):
-            print("Error: Inconsistent number of genes")
-            sys.exit()
+        if len(self.master_regulators_idx_) + np.shape(allTargets)[0] != self.nGenes_:
+            raise Exception("Error: Inconsistent number of genes")
 
-        self.find_levels_(self.graph_)  # make sure that this modifies the graph
+        self.find_levels_()  # make sure that this modifies the graph
 
         if self.dyn_:
             self.find_bin_order_(self.bifurcationMat_)
 
-    def find_levels_(self, graph):
+        self.rates = jnp.array(self.rates)
+        self._targets = {k: sorted(v) for k, v in self._targets.items()}
+        self.params_half_response = jnp.full((self.nGenes_, self.nGenes_), np.nan)
+
+    def find_levels_(self):
         """
         # This is a helper function that takes a graph and assigns layer to all
         # verticies. It uses longest path layering algorithm from
@@ -255,17 +275,18 @@ class sergio(object):
 
         U = set()
         Z = set()
-        V = set(graph.keys())
+        V = set(self.graph_.keys())
 
         currLayer = 0
         self.level2verts_[currLayer] = []
         idx = 0
 
         while U != V:
-            currVerts = set(filter(lambda v: set(graph[v]['targets']).issubset(Z), V - U))
+            # targets = self.targets[v]
+            currVerts = set(filter(lambda v: set(self.graph_[v]['targets']).issubset(Z), V - U))
 
             for v in currVerts:
-                graph[v]['level'] = currLayer
+                self.graph_[v]['level'] = currLayer
                 U.add(v)
                 if {v}.issubset(self.master_regulators_idx_):
                     allBinList = [gene(self, v, 'MR', i) for i in range(self.nBins_)]
@@ -325,23 +346,65 @@ class sergio(object):
 
         for g in currGenes:  # g is list of all bins for a single gene
             c = 0
-            if g[0].Type == 'T':
-                for interTuple in self.graph_[g[0].ID]['params']:
-                    regIdx = interTuple[0]
-                    meanArr = self.meanExpression[regIdx]
+            gg_idx = g[0].ID
+            if not g[0].is_master_regulator:
+                # for target in self.targets[gg_idx]:
+                regIdxes = np.where(~np.isnan(self.params_k[gg_idx]))
+                meanArr = self.meanExpression[regIdxes]
+                if np.all(meanArr == -1):
+                    raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
+                # self.params_half_response[gg_idx] = np.mean(meanArr)
+                self.params_half_response = jax.ops.index_update(self.params_half_response, jax.ops.index[gg_idx, regIdxes], np.mean(meanArr, axis=1))
 
-                    if np.all(meanArr == -1):
-                        raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more "
-                                        "genes in previous layer was not modeled.")
+                # for interTuple in self.params[gg_idx]:
+                #     regIdx = interTuple[0]
+                #     meanArr = self.meanExpression[regIdx]
 
-                    self.graph_[g[0].ID]['params'][c] = (
-                        self.graph_[g[0].ID]['params'][c][0], self.graph_[g[0].ID]['params'][c][1], self.graph_[g[0].ID]['params'][c][2], np.mean(meanArr))
-                    c += 1
+                #     if np.all(meanArr == -1):
+                #         raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
+
+                #     ps = self.params[gid][c][:-1]
+                #     p1 = (*ps, np.mean(meanArr))
+                #     self.params[gid][c] = p1
+
+                #     c += 1
             # Else: g is a master regulator and does not need half response
 
+    def hill_batch(self, other_gene_conc, half_responses, coop_states, repressive, not_mr_global_idx):
+        # half_responses = jax.ops.index_update(half_responses, np.isnan(half_responses), 1.)
+        # coop_states = jax.ops.index_update(coop_states, np.isnan(coop_states), 1.)
+        # other_gene_conc = jax.ops.index_update(other_gene_conc, np.isnan(other_gene_conc), 0.)
+
+        # for i, idx in enumerate(not_mr_global_idx):
+        #     regIndices = self._targets_reverse[idx]
+
+        #     targets = np.array(regIndices)
+
+        #     assert not np.isnan(half_responses[i, targets]).all()
+        #     assert not np.isnan(coop_states[i, targets]).all()
+        #     assert not np.isnan(other_gene_conc[:, targets]).all()
+
+        num_gene_groups, num_incoming_edges, num_bins = other_gene_conc.shape  # or is it outgoing?
+        assert half_responses.shape == coop_states.shape == repressive.shape == (num_gene_groups, num_incoming_edges)
+        coop_state_repeat = coop_states.reshape(*coop_states.shape, 1).repeat(num_bins, -1)
+        half_responses = half_responses.reshape(*half_responses.shape, 1).repeat(num_bins, -1)
+        repressive = repressive.reshape(*repressive.shape, 1).repeat(num_bins, -1)
+
+        num = np.power(other_gene_conc, coop_state_repeat)
+        denom = np.power(half_responses, coop_state_repeat) + num
+
+        response = np.true_divide(num, denom)
+        is_active = other_gene_conc.astype(bool)
+
+        idx = np.argwhere(repressive)
+        response = jax.ops.index_update(response, jax.ops.index[idx], 1 - response[idx])
+
+        return response + repressive * (~is_active)
+
     def hill_(self, reg_conc, half_response, coop_state, repressive):
+        print("use batch")
         num_incoming_edges, num_bins = reg_conc.shape  # or is it outgoing?
-        assert half_response.shape == coop_state.shape == repressive.shape == (num_incoming_edges,)
+        assert half_response.shape == coop_state.shape == repressive.shape == (num_incoming_edges, )
         num = np.power(reg_conc.T, coop_state)
         denom = np.power(half_response.T, coop_state) + num
 
@@ -359,20 +422,20 @@ class sergio(object):
 
         currGenes = self.level2verts_[level]
         for g in currGenes:
-            group_idx = g[0].ID
-            time = self.simulation_time[group_idx]
+            gg_idx = g[0].ID
+            time = self.simulation_time[gg_idx]
             assert time == 0
 
-            if g[0].Type == 'MR':
-                allBinRates = self.graph_[g[0].ID]['rates']
+            if g[0].is_master_regulator:
+                allBinRates = self.rates[gg_idx]  # TODO: make batch
 
-                x0 = np.true_divide(np.array(allBinRates), self.decayVector_[g[0].ID])
+                x0 = np.true_divide(np.array(allBinRates), self.decayVector_[gg_idx])
 
                 x0 = np.clip(x0, 0)
-                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
+                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, time], x0)
 
             else:
-                params = self.graph_[g[0].ID]['params']
+                params = self.params[gg_idx]  # TODO: make batch
 
                 gene_ids, magnitudes, coop_states, half_responses = [np.array(a) for a in zip(*params)]
                 # for interTuple in params:
@@ -385,26 +448,44 @@ class sergio(object):
 
                 x0 = np.true_divide(gg_rate, decay)
                 x0 = np.clip(x0, 0)
-                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, group_idx, time], x0)
+                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, time], x0)
 
-    def calculate_prod_rate_fast(self, gene_group):
-        type = gene_group[0].Type
-        gg_id = gene_group[0].ID
+    def calculate_prod_rate_fast(self, is_master_regulator, gg_ids):
+        mr_global_idx = [idx for (idx, mr) in zip(gg_ids, is_master_regulator) if mr]
+        not_mr_global_idx = [idx for (idx, mr) in zip(gg_ids, is_master_regulator) if not mr]
+        mr_input_idx = np.where(is_master_regulator)
 
-        if type == 'MR':
-            rates = self.graph_[gg_id]['rates']
-            return np.array(rates)
+        if np.all(is_master_regulator):
+            return self.rates[mr_global_idx, :]
 
-        else:
-            params = self.graph_[gg_id]['params']
-            regIndices, Ks, coop_states, half_responses = [np.array(a) for a in zip(*params)]
-            group_idx = gene_group[0].ID
-            currStep = self.simulation_time[group_idx]
+        prod_rate = np.zeros(self.rates[gg_ids, :].shape)
+        prod_rate = jax.ops.index_update(prod_rate, jax.ops.index[mr_input_idx, :], self.rates[mr_global_idx, :])
+        del mr_global_idx
+        del mr_input_idx
 
-            reg_concs = self.global_state[:, regIndices, currStep]
-            repressives = Ks < 0
-            new_state_concentration = self.hill_(reg_concs.T, half_responses, coop_states, repressives)
-            return np.matmul(np.abs(Ks), new_state_concentration.T)
+        half_responses = self.params_half_response[not_mr_global_idx, :]
+        Ks = self.params_k[not_mr_global_idx, :]
+        coop_states = self.params_shared_coop_state[not_mr_global_idx, :]
+
+        currStep = self.simulation_time[not_mr_global_idx]
+
+        assert np.all(currStep == currStep[0])  # simplification, everything is at the same time anyway
+        other_gene_conc = self.global_state[:, :, currStep]
+
+        repressives = Ks < 0
+
+        new_state_concentration = self.hill_batch(other_gene_conc.T, half_responses, coop_states, repressives, not_mr_global_idx)
+
+        for i, idx in enumerate(not_mr_global_idx):
+            regIndices = self._targets_reverse[idx]
+            targets = np.array(regIndices)
+            assert not np.isnan(Ks[i, targets]).all()
+
+        Ks = jax.ops.index_update(Ks, np.isnan(Ks), 0.)
+        k = np.matmul(np.abs(Ks), new_state_concentration.T)
+
+        prod_rate = jax.ops.index_update(prod_rate, jax.ops.index[not_mr_global_idx], k)
+        return prod_rate
 
     def CLE_simulator_(self, level):
         self.calculate_half_response_(level)
@@ -422,9 +503,10 @@ class sergio(object):
             assert self.global_state[~np.isnan(self.global_state)].min() >= 0
 
             gg_ids = [gg[0].ID for gg in sim_set]
+            gg_types = np.array([gg[0].is_master_regulator for gg in sim_set])
             times = self.simulation_time[gg_ids]
 
-            for gene_group_sim_set_id, gene_group in enumerate(sim_set):
+            for gene_group_sim_set_id, _gene_group in enumerate(sim_set):
                 gene_group_id = gg_ids[gene_group_sim_set_id]
                 time = times[gene_group_sim_set_id]
 
@@ -434,7 +516,10 @@ class sergio(object):
                 assert len(xt) == self.nBins_
 
                 # Calculate production rate
-                prod_rate = self.calculate_prod_rate_fast(gene_group)
+                # gg_type = gg_types[gene_group_sim_set_id]
+                # gg_id = gg_ids[gene_group_sim_set_id]
+                prod_rates = self.calculate_prod_rate_fast(gg_types, gg_ids)
+                prod_rate = prod_rates[gene_group_sim_set_id]
 
                 # Calculate decay rate
                 decay = np.multiply(self.decayVector_[gene_group_id], xt)
@@ -445,26 +530,23 @@ class sergio(object):
                 dx = self.dt_ * (prod_rate - decay) + pdt * noise + self.actions[time, :, gene_group_id]
                 assert not np.any(np.isnan(dx))
 
-                delIndices = []
-                idxes = [gi.ID for gi in gene_group]
-                assert len(set(idxes)) == 1
-                assert [gi.binID for gi in gene_group] == list(range(len(gene_group)))
-
                 x1 = xt + dx
                 x1 = np.clip(x1, 0)
                 self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gene_group_id, time + 1], x1)
 
                 self.simulation_time[gene_group_id] += 1
 
-                for gi in gene_group:
+                delIndices = []
+                for gi in _gene_group:
                     if time == nReqSteps:
                         self.meanExpression = jax.ops.index_update(
                             self.meanExpression, jax.ops.index[gene_group_id, gi.binID], np.mean(gi.scExpression)
                         )
-                        self.level2verts_[level][gIDX][gi.binID] = gene_group
+                        self.level2verts_[level][gIDX][gi.binID] = _gene_group
                         delIndices.append(gi.binID)
+                        print("del ", gene_group_id, gi.binID)
 
-                sim_set[gene_group_sim_set_id] = [i for j, i in enumerate(gene_group) if j not in delIndices]
+                sim_set[gene_group_sim_set_id] = [i for j, i in enumerate(_gene_group) if j not in delIndices]
 
                 if not sim_set[gene_group_sim_set_id]:
                     delIndicesGenes.append(gene_group_sim_set_id)
