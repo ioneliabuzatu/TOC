@@ -404,7 +404,7 @@ class sergio(object):
     def hill_(self, reg_conc, half_response, coop_state, repressive):
         print("use batch")
         num_incoming_edges, num_bins = reg_conc.shape  # or is it outgoing?
-        assert half_response.shape == coop_state.shape == repressive.shape == (num_incoming_edges, )
+        assert half_response.shape == coop_state.shape == repressive.shape == (num_incoming_edges,)
         num = np.power(reg_conc.T, coop_state)
         denom = np.power(half_response.T, coop_state) + num
 
@@ -451,41 +451,66 @@ class sergio(object):
                 self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, time], x0)
 
     def calculate_prod_rate_fast(self, is_master_regulator, gg_ids):
+        valid_shape = len(gg_ids), self.nBins_
+
         mr_global_idx = [idx for (idx, mr) in zip(gg_ids, is_master_regulator) if mr]
         not_mr_global_idx = [idx for (idx, mr) in zip(gg_ids, is_master_regulator) if not mr]
         mr_input_idx = np.where(is_master_regulator)
+        not_mr_input_idx = np.where(~is_master_regulator)
 
         if np.all(is_master_regulator):
             return self.rates[mr_global_idx, :]
 
-        prod_rate = np.zeros(self.rates[gg_ids, :].shape)
+        prod_rate = np.zeros(valid_shape)
         prod_rate = jax.ops.index_update(prod_rate, jax.ops.index[mr_input_idx, :], self.rates[mr_global_idx, :])
         del mr_global_idx
         del mr_input_idx
 
         half_responses = self.params_half_response[not_mr_global_idx, :]
+
+        assert self.right_nans(half_responses, not_mr_global_idx)
+        # targets = np.array(regIndices)
+
         Ks = self.params_k[not_mr_global_idx, :]
+        assert self.right_nans(Ks, not_mr_global_idx)
+
         coop_states = self.params_shared_coop_state[not_mr_global_idx, :]
+        assert self.right_nans(coop_states, not_mr_global_idx)
 
         currStep = self.simulation_time[not_mr_global_idx]
 
         assert np.all(currStep == currStep[0])  # simplification, everything is at the same time anyway
         other_gene_conc = self.global_state[:, :, currStep]
+        assert self.right_nans(other_gene_conc.mean(-1), not_mr_global_idx, weak=True)
 
         repressives = Ks < 0
 
         new_state_concentration = self.hill_batch(other_gene_conc.T, half_responses, coop_states, repressives, not_mr_global_idx)
+        assert self.right_nans(new_state_concentration.mean(-1), not_mr_global_idx)
+        assert self.right_nans(Ks, not_mr_global_idx)
 
-        for i, idx in enumerate(not_mr_global_idx):
-            regIndices = self._targets_reverse[idx]
-            targets = np.array(regIndices)
-            assert not np.isnan(Ks[i, targets]).all()
+        # Ks = jax.ops.index_update(Ks, np.isnan(Ks), 0.)
+        # k = np.matmul(np.abs(Ks), new_state_concentration.T)
+        Ks = Ks.reshape(*Ks.shape, 1).repeat(self.nBins_, -1)
+        k = np.multiply(np.abs(Ks), new_state_concentration)  # TODO: is this element wise multiply?
+        k_act = jax.ops.index_update(k, np.isnan(k), 0.)
+        k_act2 = k_act.sum(1)
 
-        Ks = jax.ops.index_update(Ks, np.isnan(Ks), 0.)
-        k = np.matmul(np.abs(Ks), new_state_concentration.T)
-
-        prod_rate = jax.ops.index_update(prod_rate, jax.ops.index[not_mr_global_idx], k)
+        prod_rate = jax.ops.index_update(prod_rate, jax.ops.index[not_mr_input_idx, :], k_act2)
         return prod_rate
+
+    def right_nans(self, var, not_mr_global_idx, weak=False):
+        all_targets = []
+        for i, idx in enumerate(not_mr_global_idx):
+            for j in sorted(self._targets_reverse[idx]):
+                all_targets.append((i, j))
+                var_i = var[i, j]
+                assert not np.isnan(var_i)
+
+        not_nans = list(zip(*np.where(~np.isnan(var))))
+        if not weak:
+            assert all([a == b for a, b in zip(all_targets, not_nans)])
+        return True
 
     def CLE_simulator_(self, level):
         self.calculate_half_response_(level)
@@ -512,6 +537,7 @@ class sergio(object):
 
                 gIDX = self.gID_to_level_and_idx[gene_group_id][1]
                 xt = self.global_state[:, gene_group_id, time]
+                assert not np.any(np.isnan(xt))
 
                 assert len(xt) == self.nBins_
 
@@ -532,6 +558,7 @@ class sergio(object):
 
                 x1 = xt + dx
                 x1 = np.clip(x1, 0)
+                assert not np.any(np.isnan(x1))
                 self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gene_group_id, time + 1], x1)
 
                 self.simulation_time[gene_group_id] += 1
