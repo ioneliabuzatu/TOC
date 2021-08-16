@@ -303,7 +303,7 @@ class sergio(object):
             if state < self.sampling_state_:
                 self.sampling_state_ = state
 
-        self.scIndices_ = onp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
+        self.scIndices_ = jnp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
 
     def calculate_required_steps_(self, level, safety_steps=0):
         """

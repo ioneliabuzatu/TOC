@@ -5,23 +5,34 @@ import pandas as pd
 import config
 
 
-def steady_state():
-    sim = sergio(number_genes=100, number_bins=2, number_sc=10, noise_params=1, decays=0.8, sampling_state=15,
-                 noise_type='dpd')
-    sim.build_graph(input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4"
-                                       ".txt",
-                    input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",
-                    shared_coop_state=2)
+def steady_state(number_genes=None,
+                 number_bins=None,
+                 number_sc=None,
+                 noise_params=None,
+                 decays=None,
+                 sampling_state=None,
+                 noise_type=None,
+                 input_file_targets=None,
+                 input_file_regs=None):
+    sim = sergio(number_genes=number_genes,
+                 number_bins=number_bins,
+                 number_sc=number_sc,
+                 noise_params=noise_params,
+                 decays=decays,
+                 sampling_state=sampling_state,
+                 noise_type=noise_type)
+    sim.build_graph(input_file_taregts=input_file_targets, input_file_regs=input_file_regs, shared_coop_state=2)
     sim.simulate()
-    expr = sim.getExpressions()
-    expr_add_outlier_genes = sim.outlier_effect(expr, outlier_prob=0.01, mean=0.8, scale=1)
-    libFactor, expr_O_L = sim.lib_size_effect(expr_add_outlier_genes, mean=4.6, scale=0.4)
-    binary_ind = sim.dropout_indicator(expr_O_L, shape=6.5, percentile=82)
-    expr_O_L_D = np.multiply(binary_ind, expr_O_L)
-    count_matrix_umi_count_format = sim.convert_to_UMIcounts(expr_O_L_D)
-    count_expression_matrix = np.concatenate(count_matrix_umi_count_format, axis=1)
-    transpose_count_matrix = count_expression_matrix.T
-    print(transpose_count_matrix.shape)
+    expression = sim.getExpressions()
+    # expr_add_outlier_genes = sim.outlier_effect(expr, outlier_prob=0.01, mean=0.8, scale=1)
+    # libFactor, expr_O_L = sim.lib_size_effect(expr_add_outlier_genes, mean=4.6, scale=0.4)
+    # binary_ind = sim.dropout_indicator(expr_O_L, shape=6.5, percentile=82)
+    # expr_O_L_D = np.multiply(binary_ind, expr_O_L)
+    # count_matrix_umi_count_format = sim.convert_to_UMIcounts(expr_O_L_D)
+    # count_expression_matrix = np.concatenate(count_matrix_umi_count_format, axis=1)
+    # transposed_count_matrix = count_expression_matrix.T
+    # return transposed_count_matrix
+    return expression
 
 
 def differentiated_states(bmat_filepath, targets_filepath, regs_filepath, number_of_cell_types):
@@ -46,9 +57,20 @@ def differentiated_states(bmat_filepath, targets_filepath, regs_filepath, number
 
 if __name__ == "__main__":
     start = time.time()
-    # steady_state()
-    differentiated_states(config.bmat_file_toy,
-                          config.input_file_targets_dynamics_toy,
-                          config.input_file_regs_dynamics_toy,
-                          number_of_cell_types=2)
-    print(f"Took {time.time()-start:.4f} sec.")
+    steady_state(number_genes=100,
+                 number_bins=2,
+                 number_sc=10,
+                 noise_params=1,
+                 decays=0.8,
+                 sampling_state=15,
+                 noise_type='dpd',
+                 input_file_targets="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4.txt",
+                 input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",
+                 )
+
+    # differentiated_states(config.bmat_file_toy,
+    #                       config.input_file_targets_dynamics_toy,
+    #                       config.input_file_regs_dynamics_toy,
+    #                       number_of_cell_types=2)
+
+    print(f"Took {time.time() - start:.4f} sec.")
