@@ -1,109 +1,82 @@
-import numpy as np
-from pathos.multiprocessing import ProcessingPool as pool
-from explore_sergio import steady_state
 import unittest
-from multiprocessing import Pool
+
+import jax.numpy as jnp
+import numpy as np
+
 import constants_for_tests
-from multiprocessing import Process
-import sharedmem
-import scipy
 import duckie.sergio_control
-
-
-def create_output_for_testing():
-    number_genes = 100
-    number_bins = 2
-    number_sc = 1
-    noise_params = 1
-    decays = 0.8
-    sampling_state = 15
-    noise_type = 'dpd'
-    input_file_targets = constants_for_tests.input_file_targets
-    input_file_regs = constants_for_tests.input_file_regs
-    steady_state_expression = steady_state(
-        number_genes=number_genes,
-        number_bins=number_bins,
-        number_sc=number_sc,
-        noise_params=noise_params,
-        decays=decays,
-        sampling_state=sampling_state,
-        noise_type=noise_type,
-        input_file_targets=input_file_targets,
-        input_file_regs=input_file_regs)
-    return steady_state_expression
+from SERGIO.SERGIO.sergio import sergio
 
 
 class TestOriginalSergio(unittest.TestCase):
     """" Check if Duckie is good as the original implementation of SERGIO. """
 
-    def test_create(self):
-        """ https://stackoverflow.com/questions/3328766/unit-testing-for-stochastic-processes """
-        actual_mean, actual_var = self.run_sergio_many_times()
-        desired_mean, desired_var = self.run_sergio_many_times()
-        self.assertTrue(np.allclose(actual_mean, desired_mean, rtol=1e-05, atol=1e-08))
+    def test_original_sergio_vs_duckie_slow_steady_no_noise(self):
+        expected_mean = self.get_sergio_steady_expression(without_noise=True).mean()
+        actual_mean = self.get_duckie_steady_expression(without_noise=True).mean()
+        self.assertAlmostEqual(expected_mean, actual_mean, delta=0.9)
 
-    def run_sergio_many_times(self, times=50):
-        means_actual = np.zeros((times, 100))
-        vars_actual = np.zeros((times, 100))
-        for seed in range(times):
-            steady_state_expression = create_output_for_testing()
-            means_actual[seed] = steady_state_expression.mean(0)
-            vars_actual[seed] = steady_state_expression.var(0)
+    def test_original_sergio_vs_duckie_slow_steady_with_noise(self):
+        actual_mean = self.get_duckie_steady_expression(without_noise=False).mean()
+        expected_mean = self.get_sergio_steady_expression(without_noise=False).mean()
+        self.assertAlmostEqual(expected_mean, actual_mean, delta=0.6)
 
-        actual_mean, actual_var = means_actual.mean(0), vars_actual.mean(0)
-        return actual_mean, actual_var
+    @staticmethod
+    def get_sergio_steady_expression(without_noise=False):
+        sim = sergio(number_genes=constants_for_tests.number_genes,
+                     number_bins=constants_for_tests.number_bins,
+                     number_sc=constants_for_tests.number_sc,
+                     noise_params=constants_for_tests.noise_params,
+                     decays=constants_for_tests.decays,
+                     sampling_state=constants_for_tests.sampling_state,
+                     noise_type=constants_for_tests.noise_type)
+        sim.build_graph(input_file_taregts=constants_for_tests.input_file_targets,
+                        input_file_regs=constants_for_tests.input_file_regs, shared_coop_state=2)
+        sim.simulate()
+        expression = sim.getExpressions()
 
-    def test_single_simulation(self):
-        steady_state_expression = create_output_for_testing()
-        print(steady_state_expression.mean())
-        return steady_state_expression
+        if without_noise:
+            return expression
+        else:
+            expr_add_outlier_genes = sim.outlier_effect(expression, outlier_prob=0.01, mean=0.8, scale=1)
+            libFactor, expr_O_L = sim.lib_size_effect(expr_add_outlier_genes, mean=4.6, scale=0.4)
+            binary_ind = sim.dropout_indicator(expr_O_L, shape=6.5, percentile=82)
+            expr_O_L_D = np.multiply(binary_ind, expr_O_L)
+            count_matrix_umi_count_format = sim.convert_to_UMIcounts(expr_O_L_D)
+            count_expression_matrix = np.concatenate(count_matrix_umi_count_format, axis=1)
+            transposed_count_matrix = count_expression_matrix.T
+            return transposed_count_matrix
 
-    def test_get_expression(self):
-        means = []
-        for i in range(1):
-            steady_state_expression_actual = create_output_for_testing()
-            means.append(steady_state_expression_actual.mean())
-        print(np.array(means).mean())
-
-    def test_get_expression_with_duckie(self):
-        number_genes = 100
-        number_bins = 2
-        number_sc = 1
-        noise_params = 1
-        decays = 0.8
-        sampling_state = 3
-        noise_type = 'dpd'
-        input_file_targets = constants_for_tests.input_file_targets
-        input_file_regs = constants_for_tests.input_file_regs
-        shared_coop_state = 2
-
-        duckie_slow_jax = duckie.sergio_control.sergio(
-            number_genes=number_genes,
-            number_bins=number_bins,
-            number_sc=number_sc,
-            noise_params=noise_params,
-            decays=decays,
-            sampling_state=sampling_state,
-            noise_type=noise_type,
+    @staticmethod
+    def get_duckie_steady_expression(without_noise=False):
+        env = duckie.sergio_control.sergio(
+            number_genes=constants_for_tests.number_genes,
+            number_bins=constants_for_tests.number_bins,
+            number_sc=constants_for_tests.number_sc,
+            noise_params=constants_for_tests.noise_params,
+            decays=constants_for_tests.decays,
+            sampling_state=constants_for_tests.sampling_state,
+            noise_type=constants_for_tests.noise_type,
         )
+        env.build_graph(constants_for_tests.input_file_targets,
+                        constants_for_tests.input_file_regs,
+                        constants_for_tests.shared_coop_state)
+        env.simulate(actions=None)
+        expression = env.get_expressions()
 
-        duckie_slow_jax.build_graph(input_file_targets, input_file_regs, shared_coop_state)
-        duckie_slow_jax.simulate(actions=None)
-        expression = duckie_slow_jax.get_expressions()
-        print(expression.mean())
-
-    def test_share_memory(self):
-        pool = Pool(processes=20)
-        results = [pool.apply_async(self.single_simulation()) for _ in range(10)]
-        roots = [r.get() for r in results]
-        print(roots)
-
-    def test_with_pathos_sim(self):
-        pool = Pool(processes=4)
-        list_start_vals = range(10)
-        array_2D = np.array(pool.map(self.single_simulation(), list_start_vals))
-        pool.close()
-        print(array_2D)
+        if without_noise:
+            return expression
+        else:
+            expr_add_outlier_genes = env.outlier_effect(expression, outlier_prob=0.01, mean=0.8, scale=1)
+            _, expression_with_outliers = env.lib_size_effect(expr_add_outlier_genes, mean=4.6, scale=0.4)
+            binary_dropout_indices = env.dropout_indicator(expression_with_outliers, shape=6.5, percentile=82)
+            expression_with_outliers_and_dropout = jnp.multiply(binary_dropout_indices, expression_with_outliers)
+            count_matrix_umi_count_format = env.convert_to_UMIcounts_fix_for_jax_poisson(
+                expression_with_outliers_and_dropout
+            )
+            count_expression_matrix = jnp.concatenate(count_matrix_umi_count_format, axis=1)
+            transpose_count_matrix = count_expression_matrix.T
+            return transpose_count_matrix
 
 
 if __name__ == '__main__':
