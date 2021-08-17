@@ -8,7 +8,7 @@ import numpy as onp
 import tqdm
 
 import constants as c
-import genes
+from duckie.src import gene
 
 # TODO these have to be removed to allow jax to calculate the correct gradients
 np.int = int
@@ -247,12 +247,12 @@ class Ducky:
                 graph[v]['level'] = currLayer
                 U.add(v)
                 if {v}.issubset(self.master_regulators_idx_):
-                    allBinList = [genes.Gene(v, 'MR', i) for i in range(self.num_cell_types)]
+                    allBinList = [gene.Gene(v, 'MR', i) for i in range(self.num_cell_types)]
                     self.levels_to_vertices[currLayer].append(allBinList)
                     self.gene_id_to_level_and_idx[v] = (currLayer, idx)
                     idx += 1
                 else:
-                    allBinList = [genes.Gene(v, 'T', i) for i in range(self.num_cell_types)]
+                    allBinList = [gene.Gene(v, 'T', i) for i in range(self.num_cell_types)]
                     self.levels_to_vertices[currLayer].append(allBinList)
                     self.gene_id_to_level_and_idx[v] = (currLayer, idx)
                     idx += 1
