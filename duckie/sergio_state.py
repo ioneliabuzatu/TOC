@@ -12,8 +12,6 @@ from duckie.genes import gene
 
 np.int = int
 np.float = float
-np.random = onp.random
-np.copy = onp.copy
 
 
 class sergio(object):
@@ -207,7 +205,6 @@ class sergio(object):
                         regId = int(float(regId))
                         # currInteraction.append((regId, float(K), shared_coop_state, onp.nan))  # last zero shows half-response, it is modified in another method
 
-                        currInteraction.append((regId, float(K), shared_coop_state, onp.nan))  # last zero shows half-response, it is modified in another method
                         self.params_k[row0, regId] = float(K)
                         self.params_shared_coop_state[row0, regId] = shared_coop_state
                         self.params_half_response[row0, regId] = 0.
@@ -218,7 +215,6 @@ class sergio(object):
                         self._targets_reverse[row0].append(regId)
                         self.graph_[regId]['targets'].append(row0)
 
-                    self.params[row0] = currInteraction
                     self.graph_[row0]['regs'] = currParents
                     self.graph_[row0]['level'] = -1  # will be modified later
                     allTargets.append(row0)
@@ -325,7 +321,7 @@ class sergio(object):
             if state < self.sampling_state_:
                 self.sampling_state_ = state
 
-        self.scIndices_ = np.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
+        self.scIndices_ = onp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
 
     def calculate_required_steps_(self, level, safety_steps=0):
         """
@@ -345,7 +341,7 @@ class sergio(object):
         currGenes = self.level2verts_[level]
 
         for g in currGenes:  # g is list of all bins for a single gene
-            c = 0
+
             gg_idx = g[0].ID
             if not g[0].is_master_regulator:
                 # for target in self.targets[gg_idx]:
@@ -353,37 +349,10 @@ class sergio(object):
                 meanArr = self.meanExpression[regIdxes]
                 if np.all(meanArr == -1):
                     raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
-                # self.params_half_response[gg_idx] = np.mean(meanArr)
                 self.params_half_response = jax.ops.index_update(self.params_half_response, jax.ops.index[gg_idx, regIdxes], np.mean(meanArr, axis=1))
-
-                # for interTuple in self.params[gg_idx]:
-                #     regIdx = interTuple[0]
-                #     meanArr = self.meanExpression[regIdx]
-
-                #     if np.all(meanArr == -1):
-                #         raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
-
-                #     ps = self.params[gid][c][:-1]
-                #     p1 = (*ps, np.mean(meanArr))
-                #     self.params[gid][c] = p1
-
-                #     c += 1
             # Else: g is a master regulator and does not need half response
 
     def hill_batch(self, other_gene_conc, half_responses, coop_states, repressive, not_mr_global_idx):
-        # half_responses = jax.ops.index_update(half_responses, np.isnan(half_responses), 1.)
-        # coop_states = jax.ops.index_update(coop_states, np.isnan(coop_states), 1.)
-        # other_gene_conc = jax.ops.index_update(other_gene_conc, np.isnan(other_gene_conc), 0.)
-
-        # for i, idx in enumerate(not_mr_global_idx):
-        #     regIndices = self._targets_reverse[idx]
-
-        #     targets = np.array(regIndices)
-
-        #     assert not np.isnan(half_responses[i, targets]).all()
-        #     assert not np.isnan(coop_states[i, targets]).all()
-        #     assert not np.isnan(other_gene_conc[:, targets]).all()
-
         num_gene_groups, num_incoming_edges, num_bins = other_gene_conc.shape  # or is it outgoing?
         assert half_responses.shape == coop_states.shape == repressive.shape == (num_gene_groups, num_incoming_edges)
         coop_state_repeat = coop_states.reshape(*coop_states.shape, 1).repeat(num_bins, -1)
@@ -435,9 +404,10 @@ class sergio(object):
                 self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, time], x0)
 
             else:
-                params = self.params[gg_idx]  # TODO: make batch
-
-                gene_ids, magnitudes, coop_states, half_responses = [np.array(a) for a in zip(*params)]
+                gene_ids = self._targets_reverse[gg_idx]
+                half_responses = self.params_half_response[gg_idx, gene_ids]
+                magnitudes = self.params_k[gg_idx, gene_ids]
+                coop_states = self.params_shared_coop_state[gg_idx, gene_ids]
                 # for interTuple in params:
                 #     gene_id, magnitude, coop_state, half_response = interTuple
                 repressives = magnitudes < 0
@@ -448,6 +418,7 @@ class sergio(object):
 
                 x0 = np.true_divide(gg_rate, decay)
                 x0 = np.clip(x0, 0)
+                assert not np.any(np.isnan(x0))
                 self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, time], x0)
 
     def calculate_prod_rate_fast(self, is_master_regulator, gg_ids):
@@ -479,7 +450,9 @@ class sergio(object):
 
         currStep = self.simulation_time[not_mr_global_idx]
 
-        assert np.all(currStep == currStep[0])  # simplification, everything is at the same time anyway
+        # assert np.all(currStep == currStep[0])  # simplification, everything is at the same time anyway
+        # TODO: why does this assert fail?!
+
         other_gene_conc = self.global_state[:, :, currStep]
         assert self.right_nans(other_gene_conc.mean(-1), not_mr_global_idx, weak=True)
 
@@ -489,8 +462,6 @@ class sergio(object):
         assert self.right_nans(new_state_concentration.mean(-1), not_mr_global_idx)
         assert self.right_nans(Ks, not_mr_global_idx)
 
-        # Ks = jax.ops.index_update(Ks, np.isnan(Ks), 0.)
-        # k = np.matmul(np.abs(Ks), new_state_concentration.T)
         Ks = Ks.reshape(*Ks.shape, 1).repeat(self.nBins_, -1)
         k = np.multiply(np.abs(Ks), new_state_concentration)  # TODO: is this element wise multiply?
         k_act = jax.ops.index_update(k, np.isnan(k), 0.)
@@ -517,7 +488,7 @@ class sergio(object):
         self.init_gene_bin_conc_(level)
 
         nReqSteps = self.calculate_required_steps_(level)
-        sim_set = np.copy(self.level2verts_[level]).tolist()
+        sim_set = onp.copy(self.level2verts_[level]).tolist()
         print(f"There are {str(len(sim_set))} genes to simulate in this layer")
 
         pdt = np.power(self.dt_, 0.5)
@@ -527,61 +498,52 @@ class sergio(object):
             print(self.simulation_time[0])
             assert self.global_state[~np.isnan(self.global_state)].min() >= 0
 
-            gg_ids = [gg[0].ID for gg in sim_set]
+            gg_ids = onp.array([gg[0].ID for gg in sim_set])
             gg_types = np.array([gg[0].is_master_regulator for gg in sim_set])
             times = self.simulation_time[gg_ids]
 
-            for gene_group_sim_set_id, _gene_group in enumerate(sim_set):
-                gene_group_id = gg_ids[gene_group_sim_set_id]
-                time = times[gene_group_sim_set_id]
+            xt = self.global_state[:, gg_ids, times].T  # The transpose makes me sad
+            assert not np.any(np.isnan(xt))
 
-                gIDX = self.gID_to_level_and_idx[gene_group_id][1]
-                xt = self.global_state[:, gene_group_id, time]
-                assert not np.any(np.isnan(xt))
+            prod_rates = self.calculate_prod_rate_fast(gg_types, gg_ids)
+            decay = np.einsum("g,gb->gb", self.decayVector_[gg_ids], xt)
 
-                assert len(xt) == self.nBins_
+            noise = self.calc_noise(xt, decay, gg_ids, prod_rates)
 
-                # Calculate production rate
-                # gg_type = gg_types[gene_group_sim_set_id]
-                # gg_id = gg_ids[gene_group_sim_set_id]
-                prod_rates = self.calculate_prod_rate_fast(gg_types, gg_ids)
-                prod_rate = prod_rates[gene_group_sim_set_id]
+            dx = self.dt_ * (prod_rates - decay) + pdt * noise + self.actions[times, :, gg_ids]
+            assert not np.any(np.isnan(dx))
 
-                # Calculate decay rate
-                decay = np.multiply(self.decayVector_[gene_group_id], xt)
+            x1 = xt + dx
+            x1 = np.clip(x1, 0)
+            assert not np.any(np.isnan(x1))
+            self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_ids, times + 1], x1.T)
+            self.simulation_time[gg_ids] += 1
 
-                # Calculate noise
-                noise = self.calc_noise(xt, decay, gene_group_id, prod_rate)
-
-                dx = self.dt_ * (prod_rate - decay) + pdt * noise + self.actions[time, :, gene_group_id]
-                assert not np.any(np.isnan(dx))
-
-                x1 = xt + dx
-                x1 = np.clip(x1, 0)
-                assert not np.any(np.isnan(x1))
-                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gene_group_id, time + 1], x1)
-
-                self.simulation_time[gene_group_id] += 1
-
+            for REMOVEME_gene_group_sim_set_id, _gene_group in enumerate(sim_set):
+                REMOVEME_gene_group_id = gg_ids[REMOVEME_gene_group_sim_set_id]
+                time = times[REMOVEME_gene_group_sim_set_id]
+                REMOVEME_gIDX = self.gID_to_level_and_idx[REMOVEME_gene_group_id][1]
                 delIndices = []
                 for gi in _gene_group:
                     if time == nReqSteps:
                         self.meanExpression = jax.ops.index_update(
-                            self.meanExpression, jax.ops.index[gene_group_id, gi.binID], np.mean(gi.scExpression)
+                            self.meanExpression, jax.ops.index[REMOVEME_gene_group_id, gi.binID], np.mean(gi.scExpression)
                         )
-                        self.level2verts_[level][gIDX][gi.binID] = _gene_group
+                        self.level2verts_[level][REMOVEME_gIDX][gi.binID] = _gene_group
                         delIndices.append(gi.binID)
-                        print("del ", gene_group_id, gi.binID)
+                        print("del ", REMOVEME_gene_group_id, gi.binID)
 
-                sim_set[gene_group_sim_set_id] = [i for j, i in enumerate(_gene_group) if j not in delIndices]
+                sim_set[REMOVEME_gene_group_sim_set_id] = [i for j, i in enumerate(_gene_group) if j not in delIndices]
 
-                if not sim_set[gene_group_sim_set_id]:
-                    delIndicesGenes.append(gene_group_sim_set_id)
+                if not sim_set[REMOVEME_gene_group_sim_set_id]:
+                    delIndicesGenes.append(REMOVEME_gene_group_sim_set_id)
 
             sim_set = [i for j, i in enumerate(sim_set) if j not in delIndicesGenes]
 
     def calc_noise(self, currExp, decay, gID, prod_rate):
+        assert decay.shape == prod_rate.shape
         if self.noiseType_ == 'sp':
+            raise NotImplemented
             # This notation is inconsistent with our formulation, dw should
             # include dt^0.5 as well, but here we multipy dt^0.5 later
             dw = np.random.normal(size=len(currExp))
@@ -589,6 +551,7 @@ class sergio(object):
             noise = np.multiply(amplitude, dw)
 
         elif self.noiseType_ == "spd":
+            raise NotImplemented
             dw = np.random.normal(size=len(currExp))
             amplitude = np.multiply(self.noiseParamsVector_[gID], np.power(prod_rate, 0.5) + np.power(decay, 0.5))
             noise = np.multiply(amplitude, dw)
@@ -596,11 +559,11 @@ class sergio(object):
         elif self.noiseType_ == "dpd":
             # TODO Current implementation is wrong, it should take different noise facotrs (noiseParamsVector_) for production and decay
             # Answer to above TODO: not neccessary! 'dpd' is already different than 'spd'
-            dw_p = np.random.normal(size=len(currExp))
-            dw_d = np.random.normal(size=len(currExp))
+            dw_p = onp.random.normal(size=currExp.shape)  # TODO: use jnp
+            dw_d = onp.random.normal(size=currExp.shape)
 
-            amplitude_p = np.multiply(self.noiseParamsVector_[gID], np.power(prod_rate, 0.5))
-            amplitude_d = np.multiply(self.noiseParamsVector_[gID], np.power(decay, 0.5))
+            amplitude_p = np.einsum("g,gb->gb", self.noiseParamsVector_[gID], np.power(prod_rate, 0.5))
+            amplitude_d = np.einsum("g,gb->gb", self.noiseParamsVector_[gID], np.power(decay, 0.5))
 
             noise = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
         assert not np.any(np.isnan(noise))
