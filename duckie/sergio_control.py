@@ -11,7 +11,8 @@ from .gene import gene
 
 jnp.int = int
 jnp.float = float
-# jnp.random = onp.random
+jnp.random = onp.random
+jnp.copy = onp.copy
 
 
 def lognormal(key: jnp.ndarray, mean, sigma, size, dtype=onp.float):
@@ -63,8 +64,8 @@ class sergio(object):
         self.gID_to_level_and_idx = {}  # This dictionary gives the level and idx in self.level2verts_ of a given gene ID
         self.binDict = {}  # This maps bin ID to list of gene objects in that bin; only used for dynamics simulations
         self.maxLevels_ = 0
-        self.init_concs_ = onp.zeros((number_genes, number_bins))
-        self.meanExpression = -1 * onp.ones((number_genes, number_bins))
+        self.init_concs_ = jnp.zeros((number_genes, number_bins))
+        self.meanExpression = -1 * jnp.ones((number_genes, number_bins))
         self.noiseType_ = noise_type
         self.dyn_ = dynamics
         self.nConvSteps = onp.zeros(number_bins)  # This holds the number of simulated steps till convergence
@@ -101,17 +102,17 @@ class sergio(object):
                 print("Error: Bifurcation Matrix is missing")
                 sys.exit()
 
-            if noise_type_splice == None:
+            if noise_type_splice is None:
                 self.noiseTypeSp_ = noise_type
             else:
                 self.noiseTypeSp_ = noise_type_splice
 
-            if dt_splice == None:
+            if dt_splice is None:
                 self.dtSp_ = onp.copy(self.dt_)
             else:
                 self.dtSp_ = dt_splice
 
-            if noise_params_splice == None:
+            if noise_params_splice is None:
                 self.noiseParamsVectorSp_ = onp.copy(self.noiseParamsVector_)
             elif jnp.isscalar(noise_params_splice):
                 self.noiseParamsVectorSp_ = jnp.repeat(noise_params_splice, number_genes)
@@ -416,7 +417,7 @@ class sergio(object):
             regIndices = [t[0] for t in params]
             binIndices = [gb.binID for gb in bin_list]
             currStep = bin_list[0].simulatedSteps_
-            lastLayerGenes = jnp.copy(self.level2verts_[level + 1])
+            lastLayerGenes = onp.copy(self.level2verts_[level + 1])
             hillMatrix = onp.zeros((len(regIndices), len(binIndices)))
 
             for tupleIdx, rIdx in enumerate(regIndices):
@@ -439,7 +440,7 @@ class sergio(object):
         self.calculate_half_response_(level)
         self.init_gene_bin_conc_(level)
         nReqSteps = self.calculate_required_steps_(level)
-        sim_set = jnp.copy(self.level2verts_[level]).tolist()
+        sim_set = onp.copy(self.level2verts_[level]).tolist()
         print("There are " + str(len(sim_set)) + " genes to simulate in this layer")
 
         while sim_set:
@@ -593,12 +594,12 @@ class sergio(object):
                         self.binDict[binID][g[0].ID].set_ss_conc_S(
                             self.ratioSp_[g[0].ID] * jnp.true_divide(currRate, self.decayVector_[g[0].ID]))
                     # NOTE This is our assumption for dynamics simulations --> we estimate mean expression of g in b with steady state concentration of U_g in b
-                    self.meanExpression[g[0].ID, binID] = self.binDict[binID][g[0].ID].ss_U_
-                    # self.meanExpression = jax.ops.index_update(
-                    #     self.meanExpression,
-                    #     jax.ops.index[g[0].ID, binID],
-                    #     self.binDict[binID][g[0].ID].ss_U_
-                    # )
+                    # self.meanExpression[g[0].ID, binID] = self.binDict[binID][g[0].ID].ss_U_
+                    self.meanExpression = jax.ops.index_update(
+                        self.meanExpression,
+                        jax.ops.index[g[0].ID, binID],
+                        self.binDict[binID][g[0].ID].ss_U_
+                    )
             if level > 0:
                 self.calculate_half_response_(level - 1)
 
@@ -634,8 +635,8 @@ class sergio(object):
             varU = jnp.true_divide(self.binDict[parentBinID][g.ID].ss_U_, 20)
             varS = jnp.true_divide(self.binDict[parentBinID][g.ID].ss_S_, 20)
 
-            deltaU = onp.random.normal(0, varU, size=nPopulation)
-            deltaS = onp.random.normal(0, varS, size=nPopulation)
+            deltaU = jnp.random.normal(0, varU, size=nPopulation)
+            deltaS = jnp.random.normal(0, varS, size=nPopulation)
 
             for i in range(len(deltaU)):
                 g.append_Conc([self.binDict[parentBinID][g.ID].ss_U_ + deltaU[i]])
@@ -656,18 +657,19 @@ class sergio(object):
             Ks = [jnp.abs(t[1]) for t in params]
             Ks = jnp.array(Ks)
             regIndices = [t[0] for t in params]
-            hillMatrix = onp.zeros((len(regIndices), num_c_to_evolve))
+            hillMatrix = jnp.zeros((len(regIndices), num_c_to_evolve))
 
             for tupleIdx, ri in enumerate(regIndices):
                 currRegConc = [self.binDict[binID][ri].Conc[i][-1] for i in range(num_c_to_evolve)]
                 for ci, cConc in enumerate(currRegConc):
-                    hillMatrix[tupleIdx, ci] = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
-                    # new_state = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
-                    # hillMatrix = jax.ops.index_update(
-                    #     hillMatrix,
-                    #     jax.ops.index[tupleIdx, ci],
-                    #     new_state
-                    # )
+                    # hillMatrix[tupleIdx, ci] = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2],
+                    #                                       params[tupleIdx][1] < 0)
+                    new_state = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
+                    hillMatrix = jax.ops.index_update(
+                        hillMatrix,
+                        jax.ops.index[tupleIdx, ci],
+                        new_state
+                    )
 
             return jnp.matmul(Ks, hillMatrix)
 
@@ -684,9 +686,9 @@ class sergio(object):
             nConverged = 0
             for g in self.binDict[binID]:
                 if g.converged_ == False:
-                    currConc = jnp.array([g.Conc[i][-10:] for i in range(num_init_cells)])
-                    meanU = jnp.mean(currConc, axis=1)
-                    errU = jnp.abs(meanU - g.ss_U_)
+                    currConc = onp.array([g.Conc[i][-10:] for i in range(num_init_cells)])
+                    meanU = onp.mean(currConc, axis=1)
+                    errU = onp.abs(meanU - g.ss_U_)
 
                     if g.ss_U_ < 1:
                         t = 0.2 * g.ss_U_
@@ -699,9 +701,9 @@ class sergio(object):
                             break
 
                 elif g.converged_S_ == False:
-                    currConc = jnp.array([g.Conc_S[i][-10:] for i in range(num_init_cells)])
-                    meanS = jnp.mean(currConc, axis=1)
-                    errS = jnp.abs(meanS - g.ss_S_)
+                    currConc = onp.array([g.Conc_S[i][-10:] for i in range(num_init_cells)])
+                    meanS = onp.mean(currConc, axis=1)
+                    errS = onp.abs(meanS - g.ss_S_)
 
                     if g.ss_S_ < 1:
                         t = 0.2 * g.ss_S_
@@ -722,6 +724,7 @@ class sergio(object):
                 return False
 
     def resume_after_convergence(self, binID):
+        print(self.binDict[binID][0].simulatedSteps_, "<", self.sampling_state_ * self.nConvSteps[binID], binID)
         if self.binDict[binID][0].simulatedSteps_ < self.sampling_state_ * self.nConvSteps[binID]:
             return True
         else:
@@ -732,8 +735,7 @@ class sergio(object):
 
         converged = False
         sim_set = self.binDict[binID]  # this is a list of gene object that we are simulating
-        nc = len(sim_set[
-                     0].Conc)  # This is the number of cells that we evolve in each iteration. This is equal to the number of cells that is initially populated from parent bin
+        nc = len(sim_set[0].Conc)  # This is the number of cells that we evolve in each iteration. This is equal to the number of cells that is initially populated from parent bin
 
         print("binID: " + str(binID))
         print("number of initial cells: " + str(nc))
@@ -777,12 +779,12 @@ class sergio(object):
             converged = self.check_convergence_dynamics_(binID, nc)
 
             if self.nConvSteps[binID] == 0 and converged:
-                self.nConvSteps[binID] = len(self.binDict[binID][0].Conc[0])
-                # self.nConvSteps = jax.ops.index_update(
-                #     self.nConvSteps,
-                #     jax.ops.index[binID],
-                #     len(self.binDict[binID][0].Conc[0])
-                # )
+                # self.nConvSteps[binID] = len(self.binDict[binID][0].Conc[0])
+                self.nConvSteps = jax.ops.index_update(
+                    self.nConvSteps,
+                    jax.ops.index[binID],
+                    len(self.binDict[binID][0].Conc[0])
+                )
 
             if converged:
                 resume = self.resume_after_convergence(binID)
@@ -793,7 +795,7 @@ class sergio(object):
             print(f"Start simulating new cell type: {bi}")
             self.populate_with_parentCells_(bi)
             self.dynamics_CLE_simulator_(bi)
-            print("Done with current cell type")
+            # print("Done with current cell type")
 
     def getExpressions_dynamics(self):
         ret = jnp.zeros((self.nBins_, self.nGenes_, self.nSC_))
