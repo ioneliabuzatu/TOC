@@ -11,8 +11,17 @@ from .gene import gene
 
 jnp.int = int
 jnp.float = float
-jnp.random = onp.random
-jnp.copy = onp.copy
+
+
+def catch_index_error(obj):
+    try:
+        len_obj = len(obj)
+        index_error = obj[len_obj + 1]
+        raise Exception("Ouch, this is corruptible!")
+    except IndexError:
+        raise Exception("this is not corruptible")
+    except Exception as e:
+        raise Exception(f"other reason{e}")
 
 
 def lognormal(key: jnp.ndarray, mean, sigma, size, dtype=onp.float):
@@ -82,16 +91,16 @@ class sergio(object):
         ############
         self.graph_ = {}
 
-        if jnp.isscalar(noise_params):
-            self.noiseParamsVector_ = jnp.repeat(noise_params, number_genes)
-        elif jnp.shape(noise_params)[0] == number_genes:
+        if onp.isscalar(noise_params):
+            self.noiseParamsVector_ = onp.repeat(noise_params, number_genes)
+        elif onp.shape(noise_params)[0] == number_genes:
             self.noiseParamsVector_ = noise_params
         else:
             print("Error: expect one noise parameter per gene")
 
-        if jnp.isscalar(decays) == 1:
-            self.decayVector_ = jnp.repeat(decays, number_genes)
-        elif jnp.shape(decays)[0] == number_genes:
+        if onp.isscalar(decays) == 1:
+            self.decayVector_ = onp.repeat(decays, number_genes)
+        elif onp.shape(decays)[0] == number_genes:
             self.decayVector_ = decays
         else:
             print("Error: expect one decay parameter per gene")
@@ -114,17 +123,17 @@ class sergio(object):
 
             if noise_params_splice is None:
                 self.noiseParamsVectorSp_ = onp.copy(self.noiseParamsVector_)
-            elif jnp.isscalar(noise_params_splice):
-                self.noiseParamsVectorSp_ = jnp.repeat(noise_params_splice, number_genes)
-            elif jnp.shape(noise_params_splice)[0] == number_genes:
+            elif onp.isscalar(noise_params_splice):
+                self.noiseParamsVectorSp_ = onp.repeat(noise_params_splice, number_genes)
+            elif onp.shape(noise_params_splice)[0] == number_genes:
                 self.noiseParamsVectorSp_ = noise_params_splice
             else:
                 print("Error: expect one splicing noise parameter per gene")
                 sys.exit()
 
-            if jnp.isscalar(splice_ratio):
-                self.ratioSp_ = jnp.repeat(splice_ratio, number_genes)
-            elif jnp.shape(splice_ratio)[0] == number_genes:
+            if onp.isscalar(splice_ratio):
+                self.ratioSp_ = onp.repeat(splice_ratio, number_genes)
+            elif onp.shape(splice_ratio)[0] == number_genes:
                 self.ratioSp_ = splice_ratio
             else:
                 print("Error: expect one splicing ratio parameter per gene")
@@ -635,8 +644,8 @@ class sergio(object):
             varU = jnp.true_divide(self.binDict[parentBinID][g.ID].ss_U_, 20)
             varS = jnp.true_divide(self.binDict[parentBinID][g.ID].ss_S_, 20)
 
-            deltaU = jnp.random.normal(0, varU, size=nPopulation)
-            deltaS = jnp.random.normal(0, varS, size=nPopulation)
+            deltaU = onp.random.normal(0, varU, size=nPopulation)
+            deltaS = onp.random.normal(0, varS, size=nPopulation)
 
             for i in range(len(deltaU)):
                 g.append_Conc([self.binDict[parentBinID][g.ID].ss_U_ + deltaU[i]])
@@ -664,6 +673,7 @@ class sergio(object):
                 for ci, cConc in enumerate(currRegConc):
                     # hillMatrix[tupleIdx, ci] = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2],
                     #                                       params[tupleIdx][1] < 0)
+
                     new_state = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
                     hillMatrix = jax.ops.index_update(
                         hillMatrix,
@@ -695,9 +705,11 @@ class sergio(object):
                     else:
                         t = 0.1 * g.ss_U_
                     # t = jnp.sqrt(num_init_cells * g.varConvConc_U_)
+                    # print("e < t diff", t - errU)
                     for e in errU:
                         if e < t:
                             g.setConverged()
+                            assert g.converged_
                             break
 
                 elif g.converged_S_ == False:
@@ -713,11 +725,12 @@ class sergio(object):
                     for e in errS:
                         if e < t:
                             g.setConverged_S()
+                            assert g.setConverged_S
                             break
 
                 else:
                     nConverged += 1
-
+            print("converged %", nConverged / self.nGenes_)
             if nConverged == self.nGenes_:
                 return True
             else:
@@ -735,7 +748,8 @@ class sergio(object):
 
         converged = False
         sim_set = self.binDict[binID]  # this is a list of gene object that we are simulating
-        nc = len(sim_set[0].Conc)  # This is the number of cells that we evolve in each iteration. This is equal to the number of cells that is initially populated from parent bin
+        nc = len(sim_set[
+                     0].Conc)  # This is the number of cells that we evolve in each iteration. This is equal to the number of cells that is initially populated from parent bin
 
         print("binID: " + str(binID))
         print("number of initial cells: " + str(nc))
@@ -761,6 +775,9 @@ class sergio(object):
                 curr_dS = self.dt_ * (prod_rate_S - decay_S) + jnp.power(self.dt_, 0.5) * noise_S
 
                 for i in range(nc):
+                    if i >= len(currU) or i >= len(curr_dU) or i >= len(currS) or i >= len(curr_dS) or i >= len(
+                            g.Conc) or i >= len(g.Conc_S):
+                        raise EnvironmentError("Big ouch i is bigger of something.")
                     if currU[i] + curr_dU[i] < 0:
                         g.Conc[i].append(0)
                     else:
@@ -795,7 +812,7 @@ class sergio(object):
             print(f"Start simulating new cell type: {bi}")
             self.populate_with_parentCells_(bi)
             self.dynamics_CLE_simulator_(bi)
-            # print("Done with current cell type")
+            print("Done with current cell type")
 
     def getExpressions_dynamics(self):
         ret = jnp.zeros((self.nBins_, self.nGenes_, self.nSC_))

@@ -32,7 +32,7 @@ class TestOriginalSergio(unittest.TestCase):
 
     def test_original_sergio_vs_duckie_slow_dynamics_with_noise(self):
         duckie_unspliced_expression, duckie_splice_expression = self.get_duckie_dynamics_expression(without_noise=False)
-        # sergio_unsplice_expression, sergio_splice_expression = self.get_sergio_dynamics_expression(without_noise=False)
+        sergio_unsplice_expression, sergio_splice_expression = self.get_sergio_dynamics_expression(without_noise=False)
         expected_mean = 0.1  # sergio_spliced_expression.mean()
         actual_mean = duckie_splice_expression.mean()
         self.assertAlmostEqual(expected_mean, actual_mean, delta=0.6)
@@ -87,18 +87,18 @@ class TestOriginalSergio(unittest.TestCase):
                         dynamics_inputs_obj.file_regs_dynamics_toy,
                         dynamics_inputs_obj.shared_coop_state)
         env.simulate_dynamics()
-        exprU, exprS = None, None # env.getExpressions_dynamics()
-        if without_noise:
-            return exprU, exprS
-        exprU_O, exprS_O = env.outlier_effect_dynamics(exprU, exprS, outlier_prob=0.01, mean=0.8, scale=1)
-        libFactor, exprU_O_L, exprS_O_L = env.lib_size_effect_dynamics(exprU_O, exprS_O, mean=4.6, scale=0.4)
-        binary_indU, binary_indS = env.dropout_indicator_dynamics(exprU_O_L, exprS_O_L, shape=6.5, percentile=82)
-        exprU_O_L_D = np.multiply(binary_indU, exprU_O_L)
-        exprS_O_L_D = np.multiply(binary_indS, exprS_O_L)
-        count_matrix_U, count_matrix_S = env.convert_to_UMIcounts_dynamics(exprU_O_L_D, exprS_O_L_D)
-        count_matrix_U = np.concatenate(count_matrix_U, axis=1)
-        count_matrix_S = np.concatenate(count_matrix_S, axis=1)
-        return count_matrix_U, count_matrix_S
+        # exprU, exprS = env.getExpressions_dynamics()
+        # if without_noise:
+        #     return exprU, exprS
+        # exprU_O, exprS_O = env.outlier_effect_dynamics(exprU, exprS, outlier_prob=0.01, mean=0.8, scale=1)
+        # libFactor, exprU_O_L, exprS_O_L = env.lib_size_effect_dynamics(exprU_O, exprS_O, mean=4.6, scale=0.4)
+        # binary_indU, binary_indS = env.dropout_indicator_dynamics(exprU_O_L, exprS_O_L, shape=6.5, percentile=82)
+        # exprU_O_L_D = np.multiply(binary_indU, exprU_O_L)
+        # exprS_O_L_D = np.multiply(binary_indS, exprS_O_L)
+        # count_matrix_U, count_matrix_S = env.convert_to_UMIcounts_dynamics(exprU_O_L_D, exprS_O_L_D)
+        # count_matrix_U = np.concatenate(count_matrix_U, axis=1)
+        # count_matrix_S = np.concatenate(count_matrix_S, axis=1)
+        # return count_matrix_U, count_matrix_S
 
     @staticmethod
     def get_sergio_steady_expression(without_noise=False):
