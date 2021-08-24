@@ -1,6 +1,7 @@
 import collections
 import csv
 import sys
+import time as clock
 
 import jax.numpy as jnp
 import jax.numpy as np
@@ -14,12 +15,9 @@ np.int = int
 np.float = float
 
 
-class sergio(object):
-
-    def __init__(self, number_genes, number_bins, number_sc, noise_params, \
-                 noise_type, decays, dynamics=False, sampling_state=10, tol=1e-3, \
-                 window_length=100, dt=0.01, optimize_sampling=False, \
-                 bifurcation_matrix=None, noise_params_splice=None, noise_type_splice=None, \
+class sergio:
+    def __init__(self, number_genes, number_bins, number_sc, noise_params, noise_type, decays, dynamics=False, sampling_state=10, tol=1e-3, \
+                 window_length=100, dt=0.01, optimize_sampling=False, bifurcation_matrix=None, noise_params_splice=None, noise_type_splice=None, \
                  splice_ratio=4, dt_splice=0.01, migration_rate=None):
         """
         Noise is a gaussian white noise process with zero mean and finite variance.
@@ -49,6 +47,7 @@ class sergio(object):
         self.nGenes_ = number_genes
         self.nBins_ = number_bins
         self.nSC_ = number_sc
+        self.coop_state = None
         self.sampling_state_ = sampling_state
         self.tol_ = tol
         self.winLen_ = window_length
@@ -60,7 +59,6 @@ class sergio(object):
         self.binDict = {}  # This maps bin ID to list of gene objects in that bin; only used for dynamics simulations
         self.maxLevels_ = 0
         self.init_concs_ = np.zeros((number_genes, number_bins))
-        self.meanExpression = -1 * np.ones((number_genes, number_bins))
         self.noiseType_ = noise_type
         self.dyn_ = dynamics
         self.nConvSteps = np.zeros(number_bins)  # This holds the number of simulated steps till convergence
@@ -78,11 +76,9 @@ class sergio(object):
         self.graph_ = {}
 
         if np.isscalar(noise_params):
-            self.noiseParamsVector_ = np.repeat(noise_params, number_genes)
-        elif np.shape(noise_params)[0] == number_genes:
-            self.noiseParamsVector_ = noise_params
+            self.noise_level = noise_params
         else:
-            print("Error: expect one noise parameter per gene")
+            raise NotImplementedError
 
         if np.isscalar(decays) == 1:
             self.decayVector_ = np.repeat(decays, number_genes)
@@ -108,7 +104,7 @@ class sergio(object):
                 self.dtSp_ = dt_splice
 
             if noise_params_splice == None:
-                self.noiseParamsVectorSp_ = np.copy(self.noiseParamsVector_)
+                self.noiseParamsVectorSp_ = np.copy(self.noise_level)
             elif np.isscalar(noise_params_splice):
                 self.noiseParamsVectorSp_ = np.repeat(noise_params_splice, number_genes)
             elif np.shape(noise_params_splice)[0] == number_genes:
@@ -127,27 +123,34 @@ class sergio(object):
 
         self.global_state = np.full((self.nBins_, self.nGenes_, self.sampling_state_ * self.nSC_), np.nan)
         self.simulation_time = onp.zeros(self.nGenes_, dtype=int)
-        self.params_half_response = None
+        self.half_responses = None
+
+    def mean_state(self, gene_group_id=None, bin=None):
+        assert isinstance(bin, (np.ndarray, onp.ndarray, type(None)))
+        assert isinstance(gene_group_id, (np.ndarray, onp.ndarray, type(None)))
+        # np.full((number_genes, number_bins), np.nan)
+        gs = self.global_state[:, :, self.scIndices_]
+        me = np.mean(gs, -1)
+
+        if bin is None and gene_group_id is None:
+            gg_gene_expression = me
+        elif bin is not None and gene_group_id is not None:
+            gg_gene_expression = me[bin, gene_group_id]
+        elif bin is None:
+            gg_gene_expression = me[:, gene_group_id]
+        elif gene_group_id is None:
+            gg_gene_expression = me[bin, :]
+        else:
+            raise NotImplemented
+
+        # self.meanExpression = jax.ops.index_update(self.meanExpression, jax.ops.index[REMOVEME_gene_group_id, :], mean_expressions)
+        return gg_gene_expression.T
 
     def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
-        """
-        # 1- shared_coop_state: if >0 then all interactions are modeled with that
-        # coop state, and coop_states in input_file_taregts are ignored. Otherwise,
-        # coop states are read from input file. Reasonbale values ~ 1-3
-        # 2- input_file_taregts: a csv file, one row per targets. Columns: Target Idx, #regulators,
-        # regIdx1,...,regIdx(#regs), K1,...,K(#regs), coop_state1,...,
-        # coop_state(#regs)
-        # 3- input_file_regs: a csv file, one row per master regulators. Columns: Master regulator Idx,
-        # production_rate1,...,productions_rate(#bins)
-        # 4- input_file_taregts should not contain any line for master regulators
-        # 5- For now, assume that nodes in graph are either master regulator or
-        # target. In other words, there should not be any node with no incomming
-        # or outgoing edge! OTHERWISE IT CAUSES ERROR IN CODE.
-        # 6- The indexing of genes start from 0. Also, the indexing used in
-        # input files should match the indexing (if applicable) used for initilizing
-        # the object.
-        """
+        if shared_coop_state <= 0:
+            raise NotImplemented
 
+        self.coop_state = shared_coop_state
         for i in range(self.nGenes_):
             self.graph_[i] = {}
             self.graph_[i]['targets'] = []
@@ -156,9 +159,9 @@ class sergio(object):
         allTargets = []
         self.params = {}
         self.rates = onp.full((self.nGenes_, self.nBins_,), np.nan)
-        self.params_k = onp.full((self.nGenes_, self.nGenes_), np.nan)
+        self.connection_strength = onp.full((self.nGenes_, self.nGenes_), np.nan)
         self.params_shared_coop_state = onp.full((self.nGenes_, self.nGenes_), np.nan)
-        self.params_half_response = onp.full((self.nGenes_, self.nGenes_), np.nan)
+        self.half_responses = onp.full((self.nGenes_, self.nGenes_), np.nan)
         self._targets = collections.defaultdict(list)
         self._targets_reverse = collections.defaultdict(list)
 
@@ -205,9 +208,8 @@ class sergio(object):
                         regId = int(float(regId))
                         # currInteraction.append((regId, float(K), shared_coop_state, onp.nan))  # last zero shows half-response, it is modified in another method
 
-                        self.params_k[row0, regId] = float(K)
-                        self.params_shared_coop_state[row0, regId] = shared_coop_state
-                        self.params_half_response[row0, regId] = 0.
+                        self.connection_strength[row0, regId] = float(K)
+                        self.half_responses[row0, regId] = 0.
 
                         allRegs.append(regId)
                         currParents.append(regId)
@@ -215,6 +217,7 @@ class sergio(object):
                         self._targets_reverse[row0].append(regId)
                         self.graph_[regId]['targets'].append(row0)
 
+                    self._targets_reverse[row0] = np.array(self._targets_reverse[row0])
                     self.graph_[row0]['regs'] = currParents
                     self.graph_[row0]['level'] = -1  # will be modified later
                     allTargets.append(row0)
@@ -252,7 +255,7 @@ class sergio(object):
 
         self.rates = jnp.array(self.rates)
         self._targets = {k: sorted(v) for k, v in self._targets.items()}
-        self.params_half_response = jnp.full((self.nGenes_, self.nGenes_), np.nan)
+        self.half_responses = jnp.full((self.nGenes_, self.nGenes_), np.nan)
 
     def find_levels_(self):
         """
@@ -321,7 +324,8 @@ class sergio(object):
             if state < self.sampling_state_:
                 self.sampling_state_ = state
 
-        self.scIndices_ = onp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
+        indices = onp.random.randint(low=-self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
+        self.scIndices_ = self.global_state.shape[-1] + indices
 
     def calculate_required_steps_(self, level, safety_steps=0):
         """
@@ -341,41 +345,45 @@ class sergio(object):
         currGenes = self.level2verts_[level]
 
         for g in currGenes:  # g is list of all bins for a single gene
-
             gg_idx = g[0].ID
             if not g[0].is_master_regulator:
                 # for target in self.targets[gg_idx]:
-                regIdxes = np.where(~np.isnan(self.params_k[gg_idx]))
-                meanArr = self.meanExpression[regIdxes]
-                if np.all(meanArr == -1):
-                    raise Exception("Error: Something's wrong in either layering or simulation. Expression of one or more genes in previous layer was not modeled.")
-                self.params_half_response = jax.ops.index_update(self.params_half_response, jax.ops.index[gg_idx, regIdxes], np.mean(meanArr, axis=1))
+                regIdxes, = np.where(~np.isnan(self.connection_strength[gg_idx]))
+                meanArr = self.mean_state(regIdxes)
+                assert np.all(~np.isnan(meanArr))
+
+                self.half_responses = jax.ops.index_update(self.half_responses, jax.ops.index[gg_idx, regIdxes], np.mean(meanArr, axis=1))
             # Else: g is a master regulator and does not need half response
 
-    def hill_batch(self, other_gene_conc, half_responses, coop_states, repressive, not_mr_global_idx):
-        num_gene_groups, num_incoming_edges, num_bins = other_gene_conc.shape  # or is it outgoing?
-        assert half_responses.shape == coop_states.shape == repressive.shape == (num_gene_groups, num_incoming_edges)
-        coop_state_repeat = coop_states.reshape(*coop_states.shape, 1).repeat(num_bins, -1)
-        half_responses = half_responses.reshape(*half_responses.shape, 1).repeat(num_bins, -1)
-        repressive = repressive.reshape(*repressive.shape, 1).repeat(num_bins, -1)
+    @staticmethod
+    def hill_batch(state, connection_strength, repressive, coop_state):
+        nodes_to_update = connection_strength.shape[0]
+        num_nodes, num_bins = state.shape  # or is it nodes_to_update?
+        assert connection_strength.shape == repressive.shape == (nodes_to_update, num_nodes)
+        connection_strength = np.expand_dims(connection_strength, -1).repeat(num_bins, -1)
+        repressive = np.expand_dims(repressive, -1).repeat(num_bins, -1)
 
-        num = np.power(other_gene_conc, coop_state_repeat)
-        denom = np.power(half_responses, coop_state_repeat) + num
+        state_sq = np.power(state, coop_state)
+        state_sq = np.expand_dims(state_sq, 0).repeat(nodes_to_update, 0)
 
-        response = np.true_divide(num, denom)
-        is_active = other_gene_conc.astype(bool)
+        strength_sq = np.power(connection_strength, coop_state)
+        total = strength_sq + state_sq
+
+        response = np.true_divide(state_sq, total)
+        is_active = state.astype(bool)
 
         idx = np.argwhere(repressive)
         response = jax.ops.index_update(response, jax.ops.index[idx], 1 - response[idx])
 
-        return response + repressive * (~is_active)
+        b = repressive * (~is_active)
+        return response + b
 
-    def hill_(self, reg_conc, half_response, coop_state, repressive):
-        print("use batch")
+    def hill_(self, reg_conc, half_response, repressive):
+        # print("use batch")
         num_incoming_edges, num_bins = reg_conc.shape  # or is it outgoing?
-        assert half_response.shape == coop_state.shape == repressive.shape == (num_incoming_edges,)
-        num = np.power(reg_conc.T, coop_state)
-        denom = np.power(half_response.T, coop_state) + num
+        assert half_response.shape == repressive.shape == (num_incoming_edges,)
+        num = np.power(reg_conc.T, self.coop_state)
+        denom = np.power(half_response.T, self.coop_state) + num
 
         response = np.true_divide(num, denom)
         is_active = reg_conc.astype(bool)
@@ -390,10 +398,11 @@ class sergio(object):
         """
 
         currGenes = self.level2verts_[level]
+
         for g in currGenes:
             gg_idx = g[0].ID
-            time = self.simulation_time[gg_idx]
-            assert time == 0
+            times = self.simulation_time[gg_idx]
+            assert times == 0
 
             if g[0].is_master_regulator:
                 allBinRates = self.rates[gg_idx]  # TODO: make batch
@@ -401,31 +410,73 @@ class sergio(object):
                 x0 = np.true_divide(np.array(allBinRates), self.decayVector_[gg_idx])
 
                 x0 = np.clip(x0, 0)
-                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, time], x0)
+                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, times], x0)
 
             else:
                 gene_ids = self._targets_reverse[gg_idx]
-                half_responses = self.params_half_response[gg_idx, gene_ids]
-                magnitudes = self.params_k[gg_idx, gene_ids]
-                coop_states = self.params_shared_coop_state[gg_idx, gene_ids]
+                half_responses = self.half_responses[gg_idx, gene_ids]
+                connection_strength = self.connection_strength[gg_idx, gene_ids]
                 # for interTuple in params:
                 #     gene_id, magnitude, coop_state, half_response = interTuple
-                repressives = magnitudes < 0
-                meanExp = self.meanExpression[gene_ids, :]
-                rates = np.abs(magnitudes) * self.hill_(meanExp, half_responses, coop_states, repressives)
+                repressives = connection_strength < 0
+                current_expressions = self.mean_state(gene_ids)
+                new_state_concentration = self.hill_(current_expressions, half_responses, repressives)
+                rates = np.abs(connection_strength) * new_state_concentration
                 gg_rate = rates.sum(1)
                 decay = self.decayVector_[g[0].ID]
 
                 x0 = np.true_divide(gg_rate, decay)
                 x0 = np.clip(x0, 0)
                 assert not np.any(np.isnan(x0))
-                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, time], x0)
+                self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[:, gg_idx, times], x0)
 
-    def calculate_prod_rate_fast(self, is_master_regulator, gg_ids):
-        valid_shape = len(gg_ids), self.nBins_
+        # gg_ids = onp.array([g[0].ID for g in currGenes])
+        # is_master_regulator = onp.array([g[0].is_master_regulator for g in currGenes])
 
-        mr_global_idx = [idx for (idx, mr) in zip(gg_ids, is_master_regulator) if mr]
-        not_mr_global_idx = [idx for (idx, mr) in zip(gg_ids, is_master_regulator) if not mr]
+        # valid_shape = len(gg_ids), self.nBins_
+
+        # mr_global_idx = [idx for (idx, mr) in zip(gg_ids, is_master_regulator) if mr]
+        # not_mr_global_idx = [idx for (idx, mr) in zip(gg_ids, is_master_regulator) if not mr]
+        # mr_input_idx = np.where(is_master_regulator)
+        # not_mr_input_idx, = np.where(~is_master_regulator)
+        # _, num_bins = self.rates.shape
+        # allBinRates = self.rates[gg_ids, :]
+
+        # if not_mr_global_idx:
+        #     half_responses = self.half_responses[not_mr_global_idx, :]  # ng
+        #     connection_strength = self.connection_strength[not_mr_global_idx, :]  # ng
+        #     # coop_states = self.params_shared_coop_state[not_mr_global_idx, :]  # ng
+        #     current_state = self.mean_state()  # gb
+        #     assert self.right_expr(current_state, not_mr_global_idx)
+
+        #     # All of them are at the same time so we don't use times = self.simulation_time[not_mr_global_idx]
+        #     # current_expressions = np.expand_dims(current_state, 0).repeat(len(not_mr_input_idx), 0)
+
+        #     repressives = connection_strength < 0
+
+        #     new_state_concentration = self.hill_batch(current_state, half_responses, repressives)  # oib
+        #     # gg_rate = rates.sum(1)  # b
+
+        #     # rates = np.einsum("oi,oib->oib", np.abs(connection_strength), new_state_concentration)  # 3, 2x3 -> 2x3 , bg
+        #     connection_strength = np.expand_dims(connection_strength, -1).repeat(self.nBins_, -1)
+        #     k = np.multiply(np.abs(connection_strength), new_state_concentration)  # TODO: is this element wise multiply?
+        #     k_active = jax.ops.index_update(k, np.isnan(k), 0.)
+        #     k_total = k_active.sum(1)
+        #     allBinRates = jax.ops.index_update(allBinRates, jax.ops.index[mr_input_idx], k_total)
+
+        # decay = self.decayVector_[gg_ids]
+        # decay = decay.reshape(*decay.shape, 1).repeat(num_bins, -1)
+        # x0 = np.true_divide(allBinRates, decay)
+        # x0 = np.clip(x0, 0)
+
+        # assert not np.any(np.isnan(x0))
+        # assert np.all(x0 == self.global_state[:, gg_ids, times].T)
+
+    def calculate_prod_rate_fast(self, is_master_regulator, target_genes):
+        valid_shape = len(target_genes), self.nBins_
+
+        mr_global_idx = [idx for (idx, mr) in zip(target_genes, is_master_regulator) if mr]
+        not_mr_global_idx = [idx for (idx, mr) in zip(target_genes, is_master_regulator) if not mr]
         mr_input_idx = np.where(is_master_regulator)
         not_mr_input_idx = np.where(~is_master_regulator)
 
@@ -437,38 +488,43 @@ class sergio(object):
         del mr_global_idx
         del mr_input_idx
 
-        half_responses = self.params_half_response[not_mr_global_idx, :]
+        half_responses = self.half_responses[not_mr_global_idx, :]
 
         assert self.right_nans(half_responses, not_mr_global_idx)
         # targets = np.array(regIndices)
 
-        Ks = self.params_k[not_mr_global_idx, :]
-        assert self.right_nans(Ks, not_mr_global_idx)
-
-        coop_states = self.params_shared_coop_state[not_mr_global_idx, :]
-        assert self.right_nans(coop_states, not_mr_global_idx)
+        connection_strength = self.connection_strength[not_mr_global_idx, :]
+        assert self.right_nans(connection_strength, not_mr_global_idx)
 
         currStep = self.simulation_time[not_mr_global_idx]
 
-        # assert np.all(currStep == currStep[0])  # simplification, everything is at the same time anyway
+        assert np.all(currStep == currStep[0])  # simplification, everything is at the same time anyway
         # TODO: why does this assert fail?!
+        curr_step = currStep[0]
 
-        other_gene_conc = self.global_state[:, :, currStep]
-        assert self.right_nans(other_gene_conc.mean(-1), not_mr_global_idx, weak=True)
+        past_concentrations = self.global_state[:, :, curr_step]
+        assert self.right_nans(past_concentrations, not_mr_global_idx, weak=True)
 
-        repressives = Ks < 0
+        repressives = connection_strength < 0
 
-        new_state_concentration = self.hill_batch(other_gene_conc.T, half_responses, coop_states, repressives, not_mr_global_idx)
+        new_state_concentration = self.hill_batch(past_concentrations.T, half_responses, repressives, self.coop_state)
         assert self.right_nans(new_state_concentration.mean(-1), not_mr_global_idx)
-        assert self.right_nans(Ks, not_mr_global_idx)
+        assert self.right_nans(connection_strength, not_mr_global_idx)
 
-        Ks = Ks.reshape(*Ks.shape, 1).repeat(self.nBins_, -1)
-        k = np.multiply(np.abs(Ks), new_state_concentration)  # TODO: is this element wise multiply?
-        k_act = jax.ops.index_update(k, np.isnan(k), 0.)
-        k_act2 = k_act.sum(1)
+        connection_strength = np.expand_dims(connection_strength, -1).repeat(self.nBins_, -1)
+        k = np.multiply(np.abs(connection_strength), new_state_concentration)  # TODO: is this element wise multiply?
+        k_active = jax.ops.index_update(k, np.isnan(k), 0.)
+        k_total = k_active.sum(1)
 
-        prod_rate = jax.ops.index_update(prod_rate, jax.ops.index[not_mr_input_idx, :], k_act2)
+        prod_rate = jax.ops.index_update(prod_rate, jax.ops.index[not_mr_input_idx, :], k_total)
         return prod_rate
+
+    def right_expr(self, var, not_mr_global_idx):
+        for i, idx in enumerate(not_mr_global_idx):
+            for j in sorted(self._targets_reverse[idx]):
+                var_i = var[j]
+                assert np.all(~np.isnan(var_i))
+        return True
 
     def right_nans(self, var, not_mr_global_idx, weak=False):
         all_targets = []
@@ -484,22 +540,25 @@ class sergio(object):
         return True
 
     def CLE_simulator_(self, level):
+        start = clock.time()
         self.calculate_half_response_(level)
         self.init_gene_bin_conc_(level)
+        init_time = clock.time() - start
+        start = clock.time()
 
         nReqSteps = self.calculate_required_steps_(level)
         sim_set = onp.copy(self.level2verts_[level]).tolist()
-        print(f"There are {str(len(sim_set))} genes to simulate in this layer")
 
         pdt = np.power(self.dt_, 0.5)
 
         while sim_set:
             delIndicesGenes = []
-            print(self.simulation_time[0])
+            # print(self.simulation_time[0])
             assert self.global_state[~np.isnan(self.global_state)].min() >= 0
 
             gg_ids = onp.array([gg[0].ID for gg in sim_set])
             gg_types = np.array([gg[0].is_master_regulator for gg in sim_set])
+
             times = self.simulation_time[gg_ids]
 
             xt = self.global_state[:, gg_ids, times].T  # The transpose makes me sad
@@ -522,16 +581,12 @@ class sergio(object):
             for REMOVEME_gene_group_sim_set_id, _gene_group in enumerate(sim_set):
                 REMOVEME_gene_group_id = gg_ids[REMOVEME_gene_group_sim_set_id]
                 time = times[REMOVEME_gene_group_sim_set_id]
-                REMOVEME_gIDX = self.gID_to_level_and_idx[REMOVEME_gene_group_id][1]
                 delIndices = []
-                for gi in _gene_group:
-                    if time == nReqSteps:
-                        self.meanExpression = jax.ops.index_update(
-                            self.meanExpression, jax.ops.index[REMOVEME_gene_group_id, gi.binID], np.mean(gi.scExpression)
-                        )
+                if time == nReqSteps:
+                    delIndices = list(range(len(_gene_group)))
+                    REMOVEME_gIDX = self.gID_to_level_and_idx[REMOVEME_gene_group_id][1]
+                    for seq_idx, gi in enumerate(_gene_group):
                         self.level2verts_[level][REMOVEME_gIDX][gi.binID] = _gene_group
-                        delIndices.append(gi.binID)
-                        print("del ", REMOVEME_gene_group_id, gi.binID)
 
                 sim_set[REMOVEME_gene_group_sim_set_id] = [i for j, i in enumerate(_gene_group) if j not in delIndices]
 
@@ -540,6 +595,10 @@ class sergio(object):
 
             sim_set = [i for j, i in enumerate(sim_set) if j not in delIndicesGenes]
 
+        print(f"init time: {init_time}, simulation time: {clock.time() - start}")
+        print()
+
+    @jax.jit
     def calc_noise(self, currExp, decay, gID, prod_rate):
         assert decay.shape == prod_rate.shape
         if self.noiseType_ == 'sp':
@@ -562,8 +621,8 @@ class sergio(object):
             dw_p = onp.random.normal(size=currExp.shape)  # TODO: use jnp
             dw_d = onp.random.normal(size=currExp.shape)
 
-            amplitude_p = np.einsum("g,gb->gb", self.noiseParamsVector_[gID], np.power(prod_rate, 0.5))
-            amplitude_d = np.einsum("g,gb->gb", self.noiseParamsVector_[gID], np.power(decay, 0.5))
+            amplitude_p = np.einsum(",gb->gb", self.noise_level, np.power(prod_rate, 0.5))
+            amplitude_d = np.einsum(",gb->gb", self.noise_level, np.power(decay, 0.5))
 
             noise = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
         assert not np.any(np.isnan(noise))
@@ -600,168 +659,6 @@ class sergio(object):
             print("ERROR: Bifurication graph is assumed to be acyclic, but a cyclic graph was passed.")
             sys.exit()
 
-    def calculate_ssConc_(self):
-        """
-        This function calculates the steady state concentrations of both unspliced and spliced RNA in the given bin (cell type).
-        Note that this steady state concentration will be used to initilize U and S concentration of this bin (if it's a master bin) and its children (if any)
-
-        Half responses are also computed here by calling its function.
-        """
-        for level in range(self.maxLevels_, -1, -1):
-            for binID in range(self.nBins_):
-                currGenes = self.level2verts_[level]
-
-                for g in currGenes:
-                    if g[0].Type == 'MR':
-                        currRate = self.graph_[g[0].ID]['rates'][binID]
-                        self.binDict[binID][g[0].ID] = gene(g[0].ID, 'MR', binID)
-                        self.binDict[binID][g[0].ID].set_ss_conc_U(np.true_divide(currRate, self.decayVector_[g[0].ID]))
-                        self.binDict[binID][g[0].ID].set_ss_conc_S(self.ratioSp_[g[0].ID] * np.true_divide(currRate, self.decayVector_[g[0].ID]))
-                    else:
-                        params = self.graph_[g[0].ID]['params']
-                        currRate = 0
-                        for interTuple in params:
-                            meanExp = self.meanExpression[interTuple[0], binID]
-                            currRate += np.abs(interTuple[1]) * self.hill_(meanExp, interTuple[3], interTuple[2], interTuple[1] < 0)
-                            # if binID == 0 and g[0].ID == 0:
-                            # print meanExp
-                            # print interTuple[3]
-                            # print interTuple[2]
-                            # print interTuple[1]
-                            # print self.hill_(meanExp, interTuple[3], interTuple[2], interTuple[1] < 0)
-
-                        self.binDict[binID][g[0].ID] = gene(g[0].ID, 'T', binID)
-                        self.binDict[binID][g[0].ID].set_ss_conc_U(np.true_divide(currRate, self.decayVector_[g[0].ID]))
-                        self.binDict[binID][g[0].ID].set_ss_conc_S(self.ratioSp_[g[0].ID] * np.true_divide(currRate, self.decayVector_[g[0].ID]))
-                    # NOTE This is our assumption for dynamics simulations --> we estimate mean expression of g in b with steady state concentration of U_g in b
-                    self.meanExpression[g[0].ID, binID] = self.binDict[binID][g[0].ID].ss_U_
-                    # if binID == 0 and g[0].ID == 0:
-                    #    print currRate
-                    #    print self.decayVector_[g[0].ID]
-            if level > 0:
-                self.calculate_half_response_(level - 1)
-
-    def populate_with_parentCells_(self, binID):
-        """
-        This function populates the concentrations of gene objects in the given bin with their parent concentration.
-        It is used to initilize the concentrations. The number of population is determined by the bifurcation rates. For master bins, it is randomly
-        chosen from a normal distribution with mean 20 and variance 5
-
-        Note: concentrations are calculated by adding a normal noise to the SS concentration of parents. Normal noise has mean zero
-        and variance = 0.1 * parent_SS_concentration
-        """
-        parentBins = self.bifurcationMat_[:, binID]
-
-        if np.count_nonzero(parentBins) > 1:
-            print("ERROR: Every cell type is assumed to be differentiated from no or one other cell type; wrong bifurcation matrix.")
-            sys.exit()
-
-        elif np.count_nonzero(parentBins) == 1:
-            parentBinID = np.nonzero(parentBins)[0][0]
-            nPopulation = int(round(self.bifurcationMat_[parentBinID, binID] * self.nSC_))
-            # self.nInitCells_[binID] = nPopulation
-
-            # Bifurcation rates of <1/nSC are set to 1/nSC
-            if nPopulation < 1:
-                nPopulation = 1
-        else:
-            parentBinID = binID
-            nPopulation = int(max(1, np.random.normal(20, 5)))
-            # self.nInitCells_[binID] = nPopulation
-
-        for g in self.binDict[binID]:
-            varU = np.true_divide(self.binDict[parentBinID][g.ID].ss_U_, 20)
-            varS = np.true_divide(self.binDict[parentBinID][g.ID].ss_S_, 20)
-
-            deltaU = np.random.normal(0, varU, size=nPopulation)
-            deltaS = np.random.normal(0, varS, size=nPopulation)
-
-            for i in range(len(deltaU)):
-                g.append_Conc([self.binDict[parentBinID][g.ID].ss_U_ + deltaU[i]])
-                g.append_Conc_S([self.binDict[parentBinID][g.ID].ss_S_ + deltaS[i]])
-
-    def calculate_prod_rate_U_(self, gID, binID, num_c_to_evolve):
-        """
-        calculate production rate of U in a bunch of cells (num_c_to_evolve) for a gene in a bin
-        Retunrs a list of 1 * num_c_to_evolve prod rates
-        """
-        type = self.binDict[binID][gID].Type
-        if (type == 'MR'):
-            rates = self.graph_[gID]['rates']
-            return [rates[binID] for i in range(num_c_to_evolve)]
-
-        else:
-            params = self.graph_[gID]['params']
-            Ks = [np.abs(t[1]) for t in params]
-            Ks = np.array(Ks)
-            regIndices = [t[0] for t in params]
-            hillMatrix = np.zeros((len(regIndices), num_c_to_evolve))
-
-            for tupleIdx, ri in enumerate(regIndices):
-                currRegConc = [self.binDict[binID][ri].Conc[i][-1] for i in range(num_c_to_evolve)]
-                for ci, cConc in enumerate(currRegConc):
-                    hillMatrix[tupleIdx, ci] = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
-
-            return np.matmul(Ks, hillMatrix)
-
-    def calculate_prod_rate_S_(self, gID, binID, num_c_to_evolve):
-        U = [self.binDict[binID][gID].Conc[i][-1] for i in range(num_c_to_evolve)]
-        U = np.array(U)
-        return self.decayVector_[gID] * U
-
-    def check_convergence_dynamics_(self, binID, num_init_cells):
-        numSteps = len(self.binDict[binID][0].Conc[0])
-        if numSteps < self.nSC_:
-            return False
-        else:
-            nConverged = 0
-            for g in self.binDict[binID]:
-                if g.converged_ == False:
-                    currConc = [g.Conc[i][-10:] for i in range(num_init_cells)]
-                    meanU = np.mean(currConc, axis=1)
-                    errU = np.abs(meanU - g.ss_U_)
-
-                    if g.ss_U_ < 1:
-                        t = 0.2 * g.ss_U_
-                    else:
-                        t = 0.1 * g.ss_U_
-                    # t = np.sqrt(num_init_cells * g.varConvConc_U_)
-                    for e in errU:
-                        if e < t:
-                            g.setConverged()
-                            break
-
-
-                elif g.converged_S_ == False:
-                    currConc = [g.Conc_S[i][-10:] for i in range(num_init_cells)]
-                    meanS = np.mean(currConc, axis=1)
-                    errS = np.abs(meanS - g.ss_S_)
-
-                    if g.ss_S_ < 1:
-                        t = 0.2 * g.ss_S_
-                    else:
-                        t = 0.1 * g.ss_S_
-                    # t = np.sqrt(num_init_cells * g.varConvConc_S_)
-                    for e in errS:
-                        if e < t:
-                            g.setConverged_S()
-                            break
-
-
-                else:
-                    nConverged += 1
-
-            if nConverged == self.nGenes_:
-                return True
-            else:
-                return False
-
-    def resume_after_convergence(self, binID):
-        if self.binDict[binID][0].simulatedSteps_ < self.sampling_state_ * self.nConvSteps[binID]:
-            return True
-        else:
-            return False
-
     def dynamics_CLE_simulator_(self, binID):
         # TODO: add population steps to this function instead of using 10 as default, make sure to modify it in populate_with_parentCells_ as well
 
@@ -773,7 +670,7 @@ class sergio(object):
         print("number of initial cells: " + str(nc))
 
         resume = True
-        while (resume):
+        while resume:
             for gID, g in enumerate(sim_set):
 
                 prod_rate_U = self.calculate_prod_rate_U_(gID, binID, nc)
@@ -793,12 +690,12 @@ class sergio(object):
                     # This notation is inconsistent with our formulation, dw should
                     # include dt^0.5 as well, but here we multipy dt^0.5 later
                     dw = np.random.normal(size=nc)
-                    amplitude = np.multiply(self.noiseParamsVector_[gID], np.power(prod_rate_U, 0.5))
+                    amplitude = np.multiply(self.noise_level, np.power(prod_rate_U, 0.5))
                     noise_U = np.multiply(amplitude, dw)
 
                 elif self.noiseType_ == "spd":
                     dw = np.random.normal(size=nc)
-                    amplitude = np.multiply(self.noiseParamsVector_[gID], np.power(prod_rate_U, 0.5) + np.power(decay_U, 0.5))
+                    amplitude = np.multiply(self.noise_level, np.power(prod_rate_U, 0.5) + np.power(decay_U, 0.5))
                     noise_U = np.multiply(amplitude, dw)
 
 
@@ -808,8 +705,8 @@ class sergio(object):
                     dw_p = np.random.normal(size=nc)
                     dw_d = np.random.normal(size=nc)
 
-                    amplitude_p = np.multiply(self.noiseParamsVector_[gID], np.power(prod_rate_U, 0.5))
-                    amplitude_d = np.multiply(self.noiseParamsVector_[gID], np.power(decay_U, 0.5))
+                    amplitude_p = np.multiply(self.noise_level, np.power(prod_rate_U, 0.5))
+                    amplitude_d = np.multiply(self.noise_level, np.power(decay_U, 0.5))
                     noise_U = np.multiply(amplitude_p, dw_p) + np.multiply(amplitude_d, dw_d)
 
                 """

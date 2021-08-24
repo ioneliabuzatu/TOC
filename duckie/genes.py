@@ -13,7 +13,7 @@ class gene:
         self.ID = geneID
         self.sergio = sergio
         # self.Type = geneType
-        self.is_master_regulator = geneType == "MR"
+        self.is_master_regulator = geneType == "MR" # TODO: this is actually not mr with 0 weights
         self.binID = binID
         self.converged_ = False
         self.converged_S_ = False
@@ -26,4 +26,5 @@ class gene:
 
     @property
     def scExpression(self):
+        raise NotImplemented
         return self.sergio.global_state[self.binID, self.ID][self.sergio.scIndices_]

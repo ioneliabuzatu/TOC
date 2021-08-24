@@ -511,13 +511,13 @@ class Ducky:
             # This notation is inconsistent with our formulation, dw should
             # include dt^0.5 as well, but here we multipy dt^0.5 later
             dw = np.random.normal(size=size)
-            amplitude = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(prod_rate, 0.5))
+            amplitude = np.multiply(self.noise_level[gene_group_id], np.power(prod_rate, 0.5))
             noise = np.multiply(amplitude, dw)
 
         elif self.noise_type == "spd":
             raise NotImplementedError
             dw = np.random.normal(size=size)
-            amplitude = np.multiply(self.noiseParamsVector_[gene_group_id], np.power(prod_rate, 0.5) + np.power(decay, 0.5))
+            amplitude = np.multiply(self.noise_level[gene_group_id], np.power(prod_rate, 0.5) + np.power(decay, 0.5))
             noise = np.multiply(amplitude, dw)
 
         elif self.noise_type == "dpd":
