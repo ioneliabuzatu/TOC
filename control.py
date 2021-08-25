@@ -3,19 +3,19 @@ import time
 import jax
 import jax.numpy as np
 
-import duckie.sergio_state
+import duckie.sergio_rewrite
+import utils
 
 
 def main_control_steady_state():
     start = time.time()
-    env = duckie.sergio_state.sergio(
+    env = duckie.sergio_rewrite.sergio(
         number_genes=100,  # Features
         number_bins=2,  # Number of cell types
         number_sc=2,  # 0,  # 300,  # Number of single cells for which expression is simulated
         noise_params=1,
         decays=0.8,
         sampling_state=3,  # 15,
-        noise_type='dpd',
     )
     env.build_graph(
         input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4.txt",
@@ -28,6 +28,8 @@ def main_control_steady_state():
         return -np.mean(np.sum(np.power(expr, 2), axis=1))
 
     actions = np.zeros((env.sampling_state_ * env.nSC_, env.nBins_, env.nGenes_))
+    # utils.plot(loss_fn, actions)
+
     loss, grad = jax.value_and_grad(loss_fn)(actions)
     print("loss", loss)
     print(f"grad shape: {grad.shape} \n grad: {grad}")

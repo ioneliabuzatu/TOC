@@ -9,6 +9,7 @@ import jax.ops
 import networkx as nx
 import numpy as onp
 
+import utils
 from duckie.genes import gene
 
 np.int = int
@@ -19,31 +20,6 @@ class sergio:
     def __init__(self, number_genes, number_bins, number_sc, noise_params, noise_type, decays, dynamics=False, sampling_state=10, tol=1e-3, \
                  window_length=100, dt=0.01, optimize_sampling=False, bifurcation_matrix=None, noise_params_splice=None, noise_type_splice=None, \
                  splice_ratio=4, dt_splice=0.01, migration_rate=None):
-        """
-        Noise is a gaussian white noise process with zero mean and finite variance.
-        noise_params: The amplitude of noise in CLE. This can be a scalar to use
-        for all genes or an array with the same size as number_genes.
-        Tol: p-Value threshold above which convergence is reached
-        window_length: length of non-overlapping window (# time-steps) that is used to realize convergence
-        dt: time step used in  CLE
-        noise_params and decays: Could be an array of length number_genes, or single value to use the same value for all genes
-        number_sc: number of single cells for which expression is simulated
-        sampling_state (>=1): single cells are sampled from sampling_state * number_sc steady-state steps
-        optimize_sampling: useful for very large graphs. If set True, may help finding a more optimal sampling_state and so may ignore the input sampling_state
-        noise_type: We consider three types of noise, 'sp': a single intrinsic noise is associated to production process, 'spd': a single intrinsic noise is associated to both
-        production and decay processes, 'dpd': two independent intrinsic noises are associated to production and decay processes
-        dynamics: whether simulate splicing or not
-        bifurcation_matrix: is a numpy array (nBins_ * nBins) of <1 values; bifurcation_matrix[i,j] indicates whether cell type i differentiates to type j or not. Its value indicates the rate of transition. If dynamics == True, this matrix should be specified
-        noise_params_splice: Same as "noise_params" but for splicing. if not specified, the same noise params as pre-mRNA is used
-        noise_type_splice: Same as "noise_type" but for splicing. if not specified, the same noise type as pre-mRNA is used
-        splice_ratio: it shows the relative amount of spliced mRNA to pre-mRNA (at steady-state) and therefore tunes the decay rate of spliced mRNA as a function of unspliced mRNA. Could be an array of length number_genes, or single value to use the same value for all genes
-        dt_splice = time step for integrating splice SDE
-
-
-        Note1: It's assumed that no two or more bins differentiate into the same new bin i.e. every bin has either 0 or 1 parent bin
-        Note2: differentitation rates (e.g. type1 -> type2) specified in bifurcation_matrix specifies the percentage of cells of type2 that are at the vicinity of type1
-        """
-
         self.nGenes_ = number_genes
         self.nBins_ = number_bins
         self.nSC_ = number_sc
@@ -474,6 +450,7 @@ class sergio:
 
     def calculate_prod_rate_fast(self, is_master_regulator, target_genes):
         valid_shape = len(target_genes), self.nBins_
+        return self.rates[target_genes]
 
         mr_global_idx = [idx for (idx, mr) in zip(target_genes, is_master_regulator) if mr]
         not_mr_global_idx = [idx for (idx, mr) in zip(target_genes, is_master_regulator) if not mr]
