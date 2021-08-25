@@ -188,22 +188,19 @@ class sergio:
             assert all([g[0].is_master_regulator for g in currGenes])
             return
 
-        gg_types = onp.array([gg[0].is_master_regulator for gg in currGenes])
-        for g in currGenes:  # g is list of all bins for a single gene
-            gg_idx = g[0].ID
-
+        gg_ids = onp.array([gg[0].ID for gg in currGenes if not gg[0].is_master_regulator])
+        adjs = self.adjacency[gg_ids]
+        gs = self.global_state[self.scIndices_]
+        mes = []
+        for g, adj in zip(currGenes, adjs):  # g is list of all bins for a single gene
             if not g[0].is_master_regulator:
-                regIdxes, = jnp.where(self.weights[gg_idx] < 0)
-                gs0 = self.global_state[self.scIndices_][:, regIdxes]  # idk what's up with these indices
-                me0 = jnp.mean(gs0, (0, 2))
-                half_responses0 = jax.ops.index_update(self.half_responses, jax.ops.index[gg_idx, regIdxes], me0)
-
-                adj = self.adjacency[gg_idx]
-                gs = self.global_state[self.scIndices_]
-                valid_gs = jnp.einsum("tgb,g->tgb", gs, adj)
+                # gg_idx = g[0].ID
+                # gs = self.global_state[self.scIndices_]
+                valid_gs = jnp.einsum("tgb,g->tgb", gs, adj) # This should be out of the loop
                 me = jnp.mean(valid_gs, (0, 2))
-                self.half_responses = jax.ops.index_add(self.half_responses, jax.ops.index[gg_idx, :], me)
-                assert jnp.all(self.half_responses[gg_idx, regIdxes] - half_responses0[gg_idx, regIdxes] < 1e-5)
+                mes.append(me)
+        mes = jnp.array(mes)
+        self.half_responses = jax.ops.index_add(self.half_responses, jax.ops.index[gg_ids, :], mes)
 
     @staticmethod
     def hill_batch(state, connection_strength, repressive, coop_state):
@@ -287,8 +284,11 @@ class sergio:
 
         start = clock.time()
         self.calculate_half_response_(level)
+        hr_time = clock.time() - start
+        start = clock.time()
         self.init_gene_bin_conc_(level)
-        init_time = clock.time() - start
+        conc_time = clock.time() - start
+
         start = clock.time()
 
         for time in range(self.nReqSteps):
@@ -314,7 +314,9 @@ class sergio:
             self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time + 1, gg_ids, :], x1)
             self.simulation_time[gg_ids] += 1
 
-        print(f"init time: {init_time}, simulation time: {clock.time() - start}")
+        sim_time = clock.time() - start
+        total = conc_time + sim_time + hr_time
+        print(f"conc time: {conc_time/total}, half response {hr_time/total}, simulation time: {sim_time/total}")
         print()
 
     def calc_noise(self, xt, decay, prod_rate):
