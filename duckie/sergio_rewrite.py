@@ -230,7 +230,7 @@ class sergio:
 
     def hill_jax(self, k, x, half_response):
         num = jnp.power(x, self.coop_state)
-        denom = jnp.power(half_response, self.coop_state) + num
+        denom = jnp.power(half_response, self.coop_state) + num + 1e-9
         response = k * (num / denom)
         repression = (jnp.abs(k) - k) / 2
         return repression - response
@@ -254,41 +254,10 @@ class sergio:
         assert all(times[0] == t for t in times)
         time = times[0]
         del times
-        if time == 0:
-            x0 = jnp.zeros_like(self.global_state[time - 1, :, :])
-        else:
-            x0 = self.global_state[time - 1, :, :]
-
+        x0 = self.global_state[time, :, :]
         x1 = self.step(x0) / (self.decay_rate ** 2)  # Decay does not apply at initialization, it's actually twice "undecayed"!
+
         self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time, gg_ids, :], x1[gg_ids, :])
-
-        for g in currGenes:
-            gg_idx = g[0].ID
-
-            if g[0].is_master_regulator:
-                x0 = self.bias[gg_idx] / self.decay_rate
-                x0 = jnp.clip(x0, 0)
-                assert jnp.all(self.global_state[time, gg_idx] - x0 < 1e-5)
-            else:
-                gene_ids = self._targets_reverse[gg_idx]
-                half_responses = self.half_responses[gg_idx, gene_ids]
-                connection_strength = self.weights[gg_idx, gene_ids]
-                # for interTuple in params:
-                #     gene_id, magnitude, coop_state, half_response = interTuple
-                # repressives = connection_strength < 0
-                current_expressions = self.mean_state(onp.array(gene_ids))
-                # new_state_concentration = self.hill_(current_expressions, half_responses, repressives)
-                # rates = np.abs(connection_strength) * new_state_concentration
-                half_response_repeat = jnp.expand_dims(half_responses, 1).repeat(current_expressions.shape[1], axis=1)
-                k_repeat = jnp.expand_dims(connection_strength, 1).repeat(current_expressions.shape[1], axis=1)
-                rates = self.hill_jax(k_repeat, current_expressions, half_response_repeat)
-                gg_rate = rates.sum(0)
-
-                x0 = gg_rate / self.decay_rate
-                x0 = jax.nn.relu(x0)
-                assert not jnp.any(jnp.isnan(x0))
-                # self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time, gg_idx, :], x0)
-                assert jnp.all(self.global_state[time, gg_idx] - x0 < 1e-5)
 
     def step(self, x0):
         x1_hat = self.bias + self.weights.dot(x0)
