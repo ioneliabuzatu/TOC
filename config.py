@@ -9,6 +9,11 @@ input_file_targets_dynamics_toy = "duckie/2_cells_types_De-noised_100G_6T_300cPe
 input_file_regs_dynamics_toy = "duckie/2_cells_types_De-noised_100G_6T_300cPerT_dynamics_7_DS6_Regs_cID_7.txt"
 bmat_file_toy = "duckie/2_cells_types_De-noised_100G_6T_300cPerT_dynamics_7_DS6_bMat_cID7.tab"
 
+# small dynamics data
+filepath_small_dynamics_targets="scenicsergio/data/interactions.txt"
+filepath_small_dynamics_regulons="scenicsergio/data/regulons.txt"
+filepath_small_dynamics_bifurcation_matrix="scenicsergio/data/bifurcation.tab"
+
 # preprocess_workflow.py user inputs
 filepath_adjancies_control = "data/scenic/mouse/control/GSE133382.adjacencies.npy"
 filepath_adjancies_disease = "data/scenic/mouse/diseased/GSE133382.disease.adjacencies.npy"

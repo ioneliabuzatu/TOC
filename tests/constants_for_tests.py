@@ -28,3 +28,17 @@ class DynamicsStateParams:
     noise_params_splice = 0.07
     noise_type = 'dpd'
 
+
+class DynamicsStateParams12Genes:
+    file_targets_dynamics_toy = "../scenicsergio/data/interactions.txt"
+    file_regs_dynamics_toy = "../scenicsergio/data/regulons.txt"
+    bmat_file_toy = "../scenicsergio/data/bifurcation.tab"
+    num_cell_types = 2
+    number_sc = 1
+    shared_coop_state = 2
+    number_genes = 12
+    noise_params = 0.2
+    decays = 0.8
+    sampling_state = 1
+    noise_params_splice = 0.07
+    noise_type = 'dpd'

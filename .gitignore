@@ -140,3 +140,6 @@ pySCENIC/
 models/checkpoints
 SERGIO
 *.gz
+*.csv
+*.tab
+*.json

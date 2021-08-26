@@ -84,8 +84,8 @@ class EnvControlDynamics:
         exprU, exprS = self.get_expression_dynamics()
         if ignore_technical_noise:
             return (exprU, exprS)
-        count_matrix_unpliced, count_matrix_spliced = self.add_technical_noise(exprU, exprS)
-        return count_matrix_unpliced, count_matrix_spliced
+        count_matrix_unspliced, count_matrix_spliced = self.add_technical_noise(exprU, exprS)
+        return count_matrix_unspliced, count_matrix_spliced
 
     def simulate_dynamics(self):
         self.env.simulate_dynamics()

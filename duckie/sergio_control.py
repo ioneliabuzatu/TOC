@@ -822,10 +822,10 @@ class sergio(object):
             nSimSteps = len(self.binDict[bi][0].Conc[0]) * len(self.binDict[bi][0].Conc)
             randCells = onp.random.choice(range(nSimSteps), size=self.nSC_, replace=False)
             for gID in range(self.nGenes_):
-                allConcU = jnp.concatenate(self.binDict[bi][gID].Conc, axis=0)
-                allConcS = jnp.concatenate(self.binDict[bi][gID].Conc_S, axis=0)
-                ret[bi, gID, :] = jnp.take(allConcU, randCells)
-                ret_S[bi, gID, :] = jnp.take(allConcS, randCells)
+                allConcU = jnp.concatenate(jnp.array(self.binDict[bi][gID].Conc), axis=0)
+                allConcS = jnp.concatenate(jnp.array(self.binDict[bi][gID].Conc_S), axis=0)
+                ret = jax.ops.index_update(ret, jax.ops.index[bi, gID, :], jnp.take(allConcU, randCells))
+                ret_S = jax.ops.index_update(ret_S, jax.ops.index[bi, gID, :], jnp.take(allConcS, randCells))
 
         return ret, ret_S
 

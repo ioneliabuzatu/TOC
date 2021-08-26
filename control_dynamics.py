@@ -2,8 +2,8 @@ import time
 
 import jax
 import jax.numpy as jnp
-import config
 
+import config
 from duckie.src.envs import EnvControlDynamics
 
 
@@ -45,23 +45,26 @@ def main_control_dynamics(number_genes,
          env_dynamics.env.nBins_,
          env_dynamics.env.nGenes_)
         ) + 0.1
-    loss, grad = jax.value_and_grad(loss_fn)(actions)
-    print("loss", loss)
-    print(f"grad shape: {grad.shape} \n grad: {grad}")
-    actions += 0.1 * -grad
+
+    for _ in range(1):
+        loss, grad = jax.value_and_grad(loss_fn)(actions)
+        print("loss", loss)
+        print(f"grad shape: {grad.shape} \n grad: {grad}")
+        actions += 0.1 * -grad
+
     print(f"Took {time.time() - start:.3f} sec.")
 
 
 if __name__ == '__main__':
     with jax.disable_jit():
-        main_control_dynamics(number_genes=100,
+        main_control_dynamics(number_genes=12,
                               number_cell_types=2,
-                              number_simulated_cells=2,
+                              number_simulated_cells=1,
                               noise_params=1,
                               decays=0.8,
                               sampling_state=3,
                               noise_type='dpd',
-                              input_file_targets=config.input_file_targets_dynamics_toy,
-                              input_file_regs=config.input_file_regs_dynamics_toy,
-                              bMat=config.bmat_file_toy,
+                              input_file_targets=config.filepath_small_dynamics_targets,
+                              input_file_regs=config.filepath_small_dynamics_regulons,
+                              bMat=config.filepath_small_dynamics_bifurcation_matrix,
                               )

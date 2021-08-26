@@ -37,6 +37,26 @@ class TestOriginalSergio(unittest.TestCase):
         actual_mean = duckie_splice_expression.mean()
         self.assertAlmostEqual(expected_mean, actual_mean, delta=0.6)
 
+    def test_duckie_dynamics_no_noise_12_genes(self):
+        dynamics_inputs_obj = constants_for_tests.DynamicsStateParams12Genes()
+        bMat = pd.read_csv(dynamics_inputs_obj.bmat_file_toy, sep='\t', header=None, index_col=None).values
+        env = duckie.sergio_control.sergio(
+            number_genes=dynamics_inputs_obj.number_genes,
+            number_bins=dynamics_inputs_obj.num_cell_types,
+            number_sc=dynamics_inputs_obj.number_sc,
+            noise_params=dynamics_inputs_obj.noise_params,
+            decays=dynamics_inputs_obj.decays,
+            sampling_state=dynamics_inputs_obj.sampling_state,
+            noise_type=dynamics_inputs_obj.noise_type,
+            dynamics=True,
+            bifurcation_matrix=bMat,
+        )
+        env.build_graph(dynamics_inputs_obj.file_targets_dynamics_toy,
+                        dynamics_inputs_obj.file_regs_dynamics_toy,
+                        dynamics_inputs_obj.shared_coop_state)
+        env.simulate_dynamics()
+        exprU, exprS = env.getExpressions_dynamics()
+
     def get_sergio_dynamics_expression(self, without_noise=False):
         dynamics_inputs_obj = constants_for_tests.DynamicsStateParams()
         bMat = pd.read_csv(dynamics_inputs_obj.bmat_file_toy, sep='\t', header=None, index_col=None).values
