@@ -4,7 +4,6 @@ import jax
 import jax.numpy as np
 
 import duckie.sergio_rewrite
-import utils
 
 
 def main_control_steady_state():
@@ -25,6 +24,7 @@ def main_control_steady_state():
 
     def loss_fn(actions):
         expr = env.simulate(actions)
+        print(f"mean {float(expr.mean().primal):.4f}")
         return -np.mean(np.sum(np.power(expr, 2), axis=1))
 
     actions = np.zeros((env.sampling_state_ * env.nSC_, env.nBins_, env.nGenes_))
