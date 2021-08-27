@@ -7,6 +7,7 @@ flow = ScenicSergioFlow(
     filepath_disease_adjacency=config.filepath_adjancies_disease,
     filepath_to_save_interactions="scenicsergio/both_interactions.txt",
     filepath_to_save_regulons="scenicsergio/both_regulons.txt",
-    select_percentile_adjacency=0.002
+    filepath_save_gene_name_to_id_mapping= "./scenicsergio/data/gene_names_mapping_to_ids_in_grn.json",
+    select_percentile_adjacency=0.0001
 )
 flow.make_grn_sergio(make_one_state_only=True, make_which_state="control")

@@ -5,6 +5,16 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
+__functions_in_ScenicSergioFlow__ = {
+    "self.open_adjacency_from_filepath_input", 
+    "self.make_grn_sergio",
+    "self.make_one_state_grn",
+    "self.group_interactions",
+    "self.add_interaction",
+    "self.trim_interactions",
+    "self.unique_ids_master_regulons_non_regulons_pairs",
+}
+
 
 class ScenicSergioFlow(object):
     def __init__(self,
@@ -13,7 +23,7 @@ class ScenicSergioFlow(object):
                  select_percentile_adjacency=100,
                  filepath_control_adjacency: str = None,
                  filepath_disease_adjacency: str = None,
-                 filepath_save_gene_name_to_id_mapping: str = "/tmp/gene_names_mapping_to_ids_in_grn.json",
+                 filepath_save_gene_name_to_id_mapping: str = None
                  ):
         """
         Output Adjacencies from scenic comes as: columns are in order of {TF \tab Target \tab Importance}
@@ -35,7 +45,7 @@ class ScenicSergioFlow(object):
 
         self.filepaths_states = {"control": self.control_filepath, "disease": self.disease_filepath}
 
-    def open_adjacency(self, open_both=False, which_state_to_open=""):
+    def open_adjacency_from_filepath_input(self, open_both=False, which_state_to_open=""):
         if open_both:
             self.control_adjacency = np.load(self.control_filepath, allow_pickle=True)
             self.disease_adjacency = np.load(self.disease_filepath, allow_pickle=True)
@@ -49,11 +59,12 @@ class ScenicSergioFlow(object):
 
     def make_grn_sergio(self, make_one_state_only=False, make_which_state="control"):
         if make_one_state_only and make_which_state in self.possible_states_adjacency.keys():
-            self.possible_states_adjacency[make_which_state] = self.open_adjacency(open_both=False,
-                                                                                   which_state_to_open=make_which_state)
+            self.possible_states_adjacency[make_which_state] = self.open_adjacency_from_filepath_input(
+                open_both=False, which_state_to_open=make_which_state
+            )
             self.make_one_state_grn(self.possible_states_adjacency[make_which_state])
         else:
-            self.control_adjacency, self.disease_adjacency = self.open_adjacency(open_both=True)
+            self.control_adjacency, self.disease_adjacency = self.open_adjacency_from_filepath_input(open_both=True)
             self.make_two_states_grn()
 
     def make_one_state_grn(self, adjacency):
@@ -61,14 +72,27 @@ class ScenicSergioFlow(object):
             adjacency = self.trim_interactions(adjacency)
 
         cycle_edges_tobe_removed = self._break_cycles(adjacency)
-        tot_unique_ids, regulons, non_regulons_pairs = self.unique_ids_master_regulons_non_regulons_pairs(adjacency)
-        # genes_ids_to_names_mapping = {k: v for v, k in enumerate(tot_unique_ids)}
-        # self.save_gene_ids_to_their_name_dict(genes_ids_to_names_mapping)
-        # interactions_tfs_per_target_gene = self.group_interactions(adjacency, genes_ids_to_names_mapping)
-
+        logging.info("The interactions to be ignored/removed: ", cycle_edges_tobe_removed)
+        tot_unique_ids, master_regulons, non_regulons_pairs = self.unique_ids_master_regulons_non_regulons_pairs(
+            adjacency)
+        genes_ids_to_names_mapping = {k: v for v, k in enumerate(tot_unique_ids)}
+        self.save_gene_ids_to_their_name_dict(genes_ids_to_names_mapping)
+        interactions_tfs_per_target_gene = self.format_sergio(
+            adjacency,
+            master_regulons,
+            genes_ids_to_names_mapping,
+            cycle_edges_tobe_removed,
+        )
+        # interactions_tfs_per_target_gene = self.group_interactions(
+        #     adjacency,
+        #     genes_ids_to_names_mapping,
+        #     cycle_edges_tobe_removed
+        # )
+        logging.info("Saving the interactions to a txt file...")
+        self.save_interactions_to_txt_file(interactions_tfs_per_target_gene)
         print("Done formatting pySCENIC GRN to SERGIO format.")
 
-    def group_interactions(self, adjacency, genes_names_to_ids_mapping):
+    def group_interactions(self, adjacency, genes_names_to_ids_mapping, interactions_to_ignore):
         """
         Each tf is added to the bounded gene in the dictionary.
         Example: {gene: ([tfs],[importance_values])}.
@@ -76,13 +100,25 @@ class ScenicSergioFlow(object):
         """
         interactions_tfs_per_target_gene = {}
         for interaction in adjacency:
-            tf, target_gene, importance = interaction
             interactions_tfs_per_target_gene = self.add_interaction(
-                interactions_tfs_per_target_gene, genes_names_to_ids_mapping, interaction
+                interaction,
+                interactions_to_ignore,
+                genes_names_to_ids_mapping,
+                interactions_tfs_per_target_gene
             )
+        return interactions_tfs_per_target_gene
 
-    def add_interaction(self, interactions_tfs_per_target_gene, genes_names_to_ids_mapping, interaction):
+    @staticmethod
+    def add_interaction(
+            interaction,
+            edges_to_ignore,
+            genes_names_to_ids_mapping,
+            interactions_tfs_per_target_gene
+    ):
         tf, target_gene, importance = interaction
+        if (tf, target_gene) in edges_to_ignore:
+            print(f"Ignored this interaction: ({tf} -> {target_gene})!")
+            return interactions_tfs_per_target_gene
         encoded_tf = genes_names_to_ids_mapping[tf]
         encoded_target_gene = genes_names_to_ids_mapping[target_gene]
         if encoded_target_gene not in interactions_tfs_per_target_gene:
@@ -145,16 +181,6 @@ class ScenicSergioFlow(object):
         except nx.exception.NetworkXNoCycle:
             return []
 
-    @staticmethod
-    def check_if_graph_is_cycled(edges) -> []:
-        G = nx.DiGraph()
-        G.add_edges_from(edges)
-        try:
-            cycle_edge = nx.find_cycle(G)
-            return cycle_edge
-        except nx.exception.NetworkXNoCycle:
-            return []
-
     def _break_cycles(self, adjacency):
         break_cycles = False
         cycle_edges = []
@@ -167,15 +193,25 @@ class ScenicSergioFlow(object):
                 break_cycles = True
         return cycle_edges
 
-    def format_sergio(self, adjacency, regulons_list, genes_names_to_indices):
+    @staticmethod
+    def check_if_graph_is_cycled(edges) -> []:
+        G = nx.DiGraph()
+        G.add_edges_from(edges)
+        try:
+            cycle_edge = nx.find_cycle(G)
+            return cycle_edge
+        except nx.exception.NetworkXNoCycle:
+            return []
+
+    def format_sergio(self, adjacency, regulons_list, genes_names_to_indices, edges_to_ignore):
         interactions_tfs_per_target_gene = {}
         visited_regulons = {k: False for k in regulons_list}
 
-        with open("./regulons.txt", "w") as file_regulons:
+        with open("./scenicsergio/data/regulons.txt", "w") as file_regulons:
             for interaction in adjacency:
                 tf, target_gene, importance = interaction
 
-                if tf in regulons_list and visited_regulons[tf]:
+                if tf in regulons_list and not visited_regulons[tf]:
                     file_regulons.write(f"{float(genes_names_to_indices[tf])},0.1,0.1\n")  # TODO replace 0.1
                     visited_regulons[tf] = True
 
@@ -189,14 +225,18 @@ class ScenicSergioFlow(object):
 
         return interactions_tfs_per_target_gene
 
-    def save_states_interactions(self):
-        with open("./interactions.txt", "w") as file:
+    @staticmethod
+    def save_interactions_to_txt_file(interactions_tfs_per_target_gene):
+        with open("./scenicsergio/data/interactions.txt", "w") as file:
             for target_gene_index, (tfs, importances) in interactions_tfs_per_target_gene.items():
                 assert len(tfs) == len(importances), "Error in creating the target genes dictionary!"
                 tf_for_target_gene_ids = ",".join([str(float(tf)) for tf in tfs])
                 importance_values_to_str = ",".join([str(importance) for importance in importances])
                 file.write(f"{float(target_gene_index)},{float(len(tfs))},{tf_for_target_gene_ids},"
                            f"{importance_values_to_str}\n")
+
+    def save_master_regulons_to_txt_file(self, master_regulons_list):
+        pass
 
     def make_two_states_grn(self):
         if self.select_percent_adjacency != 100:
