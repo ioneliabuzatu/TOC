@@ -21,7 +21,7 @@ class TestOutputComparison(TestCase):
         actions = np.zeros((env_duckie.sampling_state_ * env_duckie.nSC_, env_duckie.nBins_, env_duckie.nGenes_))
         expression_duckie = env_duckie.simulate(actions)
         mean_expression_duckie = expression_duckie.mean()
-        print(f"duckie mean expression: {mean_expression_duckie}")
+        print(f"duckie expression:\n\tmean: {mean_expression_duckie} \n\tstd: {expression_duckie.std()}")
 
         # sergio env
         sim = sergio(sampling_state=15, noise_type='dpd', **init_shared_params)
@@ -29,6 +29,6 @@ class TestOutputComparison(TestCase):
         sim.simulate()
         expression_sergio = sim.getExpressions()
         mean_expression_sergio = expression_sergio.mean()
-        print(f"sergio mean expression: {mean_expression_sergio}")
+        print(f"sergio expression: \n\tmean: {mean_expression_sergio} \n\tstd: {expression_sergio.std()}")
 
         self.assertAlmostEqual(mean_expression_sergio, float(mean_expression_duckie), delta=0.9)
