@@ -67,8 +67,8 @@ class sergio:
         allRegs = []
         allTargets = []
         self.params = {}
-        self.bias = onp.zeros((self.nGenes_, self.nBins_,))
-        self.weights = onp.zeros((self.nGenes_, self.nGenes_))
+        self.b = onp.zeros((self.nGenes_, self.nBins_,))
+        self.K = onp.zeros((self.nGenes_, self.nGenes_))
         self.adjacency = onp.zeros((self.nGenes_, self.nGenes_))
 
         self._targets = collections.defaultdict(list)
@@ -87,7 +87,7 @@ class sergio:
 
                 for regId, K, in zip(row[2: 2 + nRegs], row[2 + nRegs: 2 + 2 * nRegs]):
                     regId = int(float(regId))
-                    self.weights[row0, regId] = float(K)
+                    self.K[row0, regId] = float(K)
                     self.adjacency[row0, regId] = 1.
 
                     allRegs.append(regId)
@@ -109,7 +109,7 @@ class sergio:
                     raise Exception("Error: Inconsistent number of bins")
 
                 masterRegs.append(row0)
-                self.bias[row0] = [float(i) for i in row[1:]]
+                self.b[row0] = [float(i) for i in row[1:]]
                 self.graph_[row0]['regs'] = []
                 self.graph_[row0]['level'] = -1
 
@@ -125,8 +125,8 @@ class sergio:
 
         self.find_levels_()  # make sure that this modifies the graph
 
-        self.bias = jnp.array(self.bias)
-        self.weights = jnp.array(self.weights)
+        self.b = jnp.array(self.b)
+        self.K = jnp.array(self.K)
         self.adjacency = jnp.array(self.adjacency)
 
         self._targets = {k: sorted(v) for k, v in self._targets.items()}
@@ -196,7 +196,7 @@ class sergio:
             if not g[0].is_master_regulator:
                 # gg_idx = g[0].ID
                 # gs = self.global_state[self.scIndices_]
-                valid_gs = jnp.einsum("tgb,g->tgb", gs, adj) # This should be out of the loop
+                valid_gs = jnp.einsum("tgb,g->tgb", gs, adj)  # This should be out of the loop
                 me = jnp.mean(valid_gs, (0, 2))
                 mes.append(me)
         mes = jnp.array(mes)
@@ -252,14 +252,33 @@ class sergio:
         time = times[0]
         del times
         x0 = self.global_state[time, :, :]
-        x1 = self.step(x0) / (self.decay_rate ** 2)  # Decay does not apply at initialization, it's actually twice "undecayed"!
+        x1 = self.step(x0, gg_ids) / (self.decay_rate ** 2)  # Decay does not apply at initialization, it's actually twice "undecayed"!
 
         self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time, gg_ids, :], x1[gg_ids, :])
 
-    def step(self, x0):
-        x1_hat = self.bias + self.weights.dot(x0)
-        assert not jnp.any(jnp.isnan(x0[self.current_genes, :]))
-        x1 = jax.nn.relu(x1_hat * self.decay_rate)
+    def eq6or7_onegene(self, gene_i, x0):
+        num_bins = self.nBins_
+        k = self.K[gene_i]
+        half_responses = self.half_responses[gene_i]
+
+        k = jnp.expand_dims(k, -1).repeat(num_bins, -1)
+        half_responses = jnp.expand_dims(half_responses, -1).repeat(num_bins, -1)
+
+        eq6_numerator = x0 ** self.coop_state
+        h_i = half_responses ** self.coop_state
+        eq6_denominator = h_i + eq6_numerator + 1e-6
+        response = k * (eq6_numerator / eq6_denominator)
+        repression = (jnp.abs(k) - k) / 2
+        return repression - response
+
+    @jax.jit
+    def step(self, x0, gg_ids):
+        x1 = jnp.zeros_like(x0)
+        for gene_i in gg_ids:  # actually genes in this level
+            x1_hat = self.b[gene_i] + jnp.sum(self.eq6or7_onegene(gene_i, x0)) # sum across j, eq 5
+            assert not jnp.any(jnp.isnan(x0[self.current_genes, :]))
+            x1_i = jax.nn.relu(x1_hat * self.decay_rate)
+            x1 = jax.ops.index_update(x1, jax.ops.index[gene_i, :], x1_i)
         return x1
 
     def calculate_prod_rate_fast(self, target_genes):
@@ -271,7 +290,7 @@ class sergio:
             x0 = jnp.zeros_like(self.global_state[time - 1, :, :])
         else:
             x0 = self.global_state[time - 1, :, :]
-        x1 = self.step(x0)
+        x1 = self.step(x0, target_genes)
         # TODO: a sum is missing here
 
         return x1[target_genes, :]
@@ -316,7 +335,7 @@ class sergio:
 
         sim_time = clock.time() - start
         total = conc_time + sim_time + hr_time
-        print(f"conc time: {conc_time/total}, half response {hr_time/total}, simulation time: {sim_time/total}")
+        print(f"conc time: {conc_time / total}, half response {hr_time / total}, simulation time: {sim_time / total}")
         print()
 
     def calc_noise(self, xt, decay, prod_rate):
