@@ -17,7 +17,7 @@ jnp.float = float
 def catch_index_error(obj):
     try:
         len_obj = len(obj)
-        index_error = obj[len_obj + 1]
+        _ = obj[len_obj + 1]
         raise Exception("Ouch, this is corruptible!")
     except IndexError:
         raise Exception("this is not corruptible")
@@ -25,7 +25,7 @@ def catch_index_error(obj):
         raise Exception(f"other reason{e}")
 
 
-def lognormal(key: jnp.ndarray, mean, sigma, size, dtype=onp.float):
+def log_normal(key: jnp.ndarray, mean, sigma, size, dtype=onp.float):
     normal = jax.random.normal(key, size, dtype) + mean
     return jnp.exp(normal * sigma)
 
@@ -759,7 +759,7 @@ class sergio(object):
 
         print("binID: " + str(binID))
         print("number of initial cells: " + str(nc))
-
+        print(len(sim_set))
         resume = True
         while resume:
             for gID, g in enumerate(sim_set):
@@ -777,8 +777,7 @@ class sergio(object):
                 noise_U = self.calculate_noise(nc, decay_U, gID, prod_rate_U)
                 noise_S = self.calculate_noise(nc, decay_S, gID, prod_rate_S)
 
-                curr_dU = self.dt_ * (prod_rate_U - decay_U) + jnp.power(self.dt_, 0.5) * noise_U  # + self.actions[
-                # time, :, gg_ids]
+                curr_dU = self.dt_ * (prod_rate_U - decay_U) + jnp.power(self.dt_, 0.5) * noise_U + self.actions[binID, gID]
                 curr_dS = self.dt_ * (prod_rate_S - decay_S) + jnp.power(self.dt_, 0.5) * noise_S
 
                 for i in range(nc):
