@@ -43,16 +43,16 @@ def main_control_dynamics(number_genes,
         )
         return -jnp.mean(jnp.sum(jnp.power(expression_spliced, 2), axis=1))
 
-    # shape = (env_dynamics.env.sampling_state_ * env_dynamics.env.nSC_, env_dynamics.env.nBins_, env_dynamics.env.nGenes_)
+    shape = (env_dynamics.env.sampling_state_ * env_dynamics.env.nSC_, env_dynamics.env.nBins_, env_dynamics.env.nGenes_)
     shape = (env_dynamics.env.nBins_, env_dynamics.env.nGenes_)
     actions = jnp.zeros(shape=shape) + 0.1
 
-    for _ in range(10):
-        loss, grad = jax.value_and_grad(loss_fn)(actions)
-        wandb.log({'loss': float(loss)})
-        print("loss", loss)
-        print(f"grad shape: {grad.shape} \n grad: {grad}")
-        actions += 0.1 * -grad
+    # for _ in range(10):
+    loss, grad = jax.value_and_grad(loss_fn)(actions)
+    wandb.log({'loss': float(loss)})
+    print("loss", loss)
+    print(f"grad shape: {grad.shape} \n grad: {grad}")
+    actions += 0.1 * -grad
 
     print(f"Took {time.time() - start:.3f} secs.")
 
