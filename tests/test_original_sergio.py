@@ -24,16 +24,16 @@ class TestOriginalSergio(unittest.TestCase):
         self.assertAlmostEqual(expected_mean, actual_mean, delta=0.6)
 
     def test_original_sergio_vs_duckie_slow_dynamics_without_noise(self):
-        duckie_unspliced_expression, duckie_spliced_expression = self.get_duckie_dynamics_expression(without_noise=True)
-        # sergio_unsplice_expression, sergio_splice_expression = self.get_sergio_dynamics_expression(without_noise=True)
-        # expected_mean = 10  # sergio_spliced_expression.mean()
+        # duckie_unspliced_expression, duckie_spliced_expression = self.get_duckie_dynamics_expression(without_noise=True)
+        sergio_unspliced_expression, sergio_splice_expression = self.get_sergio_dynamics_expression(without_noise=True)
+        expected_mean = sergio_unspliced_expression.mean()
         # actual_mean = duckie_spliced_expression.mean()
         # self.assertAlmostEqual(expected_mean, actual_mean, delta=0.7)
 
     def test_original_sergio_vs_duckie_slow_dynamics_with_noise(self):
         duckie_unspliced_expression, duckie_splice_expression = self.get_duckie_dynamics_expression(without_noise=False)
         sergio_unsplice_expression, sergio_splice_expression = self.get_sergio_dynamics_expression(without_noise=False)
-        expected_mean = 0.1  # sergio_spliced_expression.mean()
+        expected_mean = sergio_unsplice_expression.mean()
         actual_mean = duckie_splice_expression.mean()
         self.assertAlmostEqual(expected_mean, actual_mean, delta=0.6)
 
@@ -56,6 +56,68 @@ class TestOriginalSergio(unittest.TestCase):
                         dynamics_inputs_obj.shared_coop_state)
         env.simulate_dynamics()
         exprU, exprS = env.getExpressions_dynamics()
+        duckie_mean, duckie_std = exprS.mean(), exprS.std()
+        print(f"Duckie no noise mean: {duckie_mean} | std: {duckie_std}")
+
+    def test_duckie_dynamics_with_noise_12_genes(self):
+        dynamics_inputs_obj = constants_for_tests.DynamicsStateParams12Genes()
+        bMat = pd.read_csv(dynamics_inputs_obj.bmat_file_toy, sep='\t', header=None, index_col=None).values
+        env = duckie.sergio_control.sergio(
+            number_genes=dynamics_inputs_obj.number_genes,
+            number_bins=dynamics_inputs_obj.num_cell_types,
+            number_sc=dynamics_inputs_obj.number_sc,
+            noise_params=dynamics_inputs_obj.noise_params,
+            decays=dynamics_inputs_obj.decays,
+            sampling_state=dynamics_inputs_obj.sampling_state,
+            noise_type=dynamics_inputs_obj.noise_type,
+            dynamics=True,
+            bifurcation_matrix=bMat,
+        )
+        env.build_graph(dynamics_inputs_obj.file_targets_dynamics_toy,
+                        dynamics_inputs_obj.file_regs_dynamics_toy,
+                        dynamics_inputs_obj.shared_coop_state)
+        env.simulate_dynamics()
+        exprU, exprS = env.getExpressions_dynamics()
+        exprU_O, exprS_O = env.outlier_effect_dynamics(exprU, exprS, outlier_prob=0.01, mean=0.8, scale=1)
+        libFactor, exprU_O_L, exprS_O_L = env.lib_size_effect_dynamics(exprU_O, exprS_O, mean=4.6, scale=0.4)
+        binary_indU, binary_indS = env.dropout_indicator_dynamics(exprU_O_L, exprS_O_L, shape=6.5, percentile=82)
+        exprU_O_L_D = np.multiply(binary_indU, exprU_O_L)
+        exprS_O_L_D = np.multiply(binary_indS, exprS_O_L)
+        count_matrix_U, count_matrix_S = env.convert_to_UMIcounts_dynamics(exprU_O_L_D, exprS_O_L_D)
+        count_matrix_U = np.concatenate(count_matrix_U, axis=1)
+        count_matrix_S = np.concatenate(count_matrix_S, axis=1)
+        mean, std = count_matrix_S.mean(), count_matrix_S.std()
+        print(f"Duckie with noise mean: {mean} | std: {std}")
+
+    def test_sergio_dynamics_with_noise_12_genes(self):
+        dynamics_inputs_obj = constants_for_tests.SteadyStateParams12Genes()
+        bMat = pd.read_csv(dynamics_inputs_obj.bmat_file_toy, sep='\t', header=None, index_col=None).values
+        sim = sergio(number_genes=dynamics_inputs_obj.number_genes,
+                     number_bins=dynamics_inputs_obj.num_cell_types,
+                     number_sc=dynamics_inputs_obj.number_sc,
+                     noise_params=dynamics_inputs_obj.noise_params,
+                     decays=dynamics_inputs_obj.decays,
+                     sampling_state=dynamics_inputs_obj.sampling_state,
+                     noise_params_splice=dynamics_inputs_obj.noise_params_splice,
+                     noise_type=dynamics_inputs_obj.noise_type,
+                     dynamics=True,
+                     bifurcation_matrix=bMat
+                     )
+        sim.build_graph(input_file_taregts=dynamics_inputs_obj.file_targets_dynamics_toy,
+                        input_file_regs=dynamics_inputs_obj.file_regs_dynamics_toy,
+                        shared_coop_state=2
+                        )
+        sim.simulate_dynamics()
+        exprU, exprS = sim.getExpressions_dynamics()
+        exprU_O, exprS_O = sim.outlier_effect_dynamics(exprU, exprS, outlier_prob=0.01, mean=0.8, scale=1)
+        libFactor, exprU_O_L, exprS_O_L = sim.lib_size_effect_dynamics(exprU_O, exprS_O, mean=4.6, scale=0.4)
+        binary_indU, binary_indS = sim.dropout_indicator_dynamics(exprU_O_L, exprS_O_L, shape=6.5, percentile=82)
+        exprU_O_L_D = np.multiply(binary_indU, exprU_O_L)
+        exprS_O_L_D = np.multiply(binary_indS, exprS_O_L)
+        count_matrix_U, count_matrix_S = sim.convert_to_UMIcounts_dynamics(exprU_O_L_D, exprS_O_L_D)
+        count_matrix_U = np.concatenate(count_matrix_U, axis=1)
+        count_matrix_S = np.concatenate(count_matrix_S, axis=1)
+        print(f"Duckie with noise mean: {count_matrix_S.mean()} | std: {count_matrix_S.std()}")
 
     def get_sergio_dynamics_expression(self, without_noise=False):
         dynamics_inputs_obj = constants_for_tests.DynamicsStateParams()
@@ -88,6 +150,7 @@ class TestOriginalSergio(unittest.TestCase):
         count_matrix_U = np.concatenate(count_matrix_U, axis=1)
         count_matrix_S = np.concatenate(count_matrix_S, axis=1)
         return count_matrix_U, count_matrix_S
+    
 
     def get_duckie_dynamics_expression(self, without_noise):
         dynamics_inputs_obj = constants_for_tests.DynamicsStateParams()

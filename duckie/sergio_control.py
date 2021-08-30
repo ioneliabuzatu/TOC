@@ -6,6 +6,7 @@ import jax.ops
 import jax.random
 import networkx as nx
 import numpy as onp
+from jax.random import PRNGKey
 
 from .gene import gene
 
@@ -27,6 +28,10 @@ def catch_index_error(obj):
 def lognormal(key: jnp.ndarray, mean, sigma, size, dtype=onp.float):
     normal = jax.random.normal(key, size, dtype) + mean
     return jnp.exp(normal * sigma)
+
+
+def normal_non_log(key: jnp.ndarray, mean, sigma, shape: tuple, dtype=onp.float):
+    return mean + sigma * jax.random.normal(key, shape, dtype)
 
 
 class sergio(object):
@@ -77,13 +82,13 @@ class sergio(object):
         self.meanExpression = -1 * jnp.ones((number_genes, number_bins))
         self.noiseType_ = noise_type
         self.dyn_ = dynamics
-        self.nConvSteps = onp.zeros(number_bins)  # This holds the number of simulated steps till convergence
+        self.nConvSteps = jnp.zeros(number_bins)  # This holds the number of simulated steps till convergence
         if dynamics:
             self.bifurcationMat_ = onp.array(bifurcation_matrix)
             self.binOrders_ = []
             self.binDict = {}
             for b in range(self.nBins_):
-                self.binDict[b] = onp.zeros(self.nGenes_, ).tolist()
+                self.binDict[b] = jnp.zeros(self.nGenes_, ).tolist()
         ############
         # This graph stores for each vertex: parameters(interaction
         # parameters for non-master regulators and production rates for master
@@ -91,16 +96,16 @@ class sergio(object):
         ############
         self.graph_ = {}
 
-        if onp.isscalar(noise_params):
-            self.noiseParamsVector_ = onp.repeat(noise_params, number_genes)
-        elif onp.shape(noise_params)[0] == number_genes:
+        if jnp.isscalar(noise_params):
+            self.noiseParamsVector_ = jnp.repeat(noise_params, number_genes)
+        elif jnp.shape(noise_params)[0] == number_genes:
             self.noiseParamsVector_ = noise_params
         else:
             print("Error: expect one noise parameter per gene")
 
-        if onp.isscalar(decays) == 1:
-            self.decayVector_ = onp.repeat(decays, number_genes)
-        elif onp.shape(decays)[0] == number_genes:
+        if jnp.isscalar(decays) == 1:
+            self.decayVector_ = jnp.repeat(decays, number_genes)
+        elif jnp.shape(decays)[0] == number_genes:
             self.decayVector_ = decays
         else:
             print("Error: expect one decay parameter per gene")
@@ -117,29 +122,30 @@ class sergio(object):
                 self.noiseTypeSp_ = noise_type_splice
 
             if dt_splice is None:
-                self.dtSp_ = onp.copy(self.dt_)
+                self.dtSp_ = jnp.copy(self.dt_)
             else:
                 self.dtSp_ = dt_splice
 
             if noise_params_splice is None:
                 self.noiseParamsVectorSp_ = onp.copy(self.noiseParamsVector_)
-            elif onp.isscalar(noise_params_splice):
-                self.noiseParamsVectorSp_ = onp.repeat(noise_params_splice, number_genes)
-            elif onp.shape(noise_params_splice)[0] == number_genes:
+            elif jnp.isscalar(noise_params_splice):
+                self.noiseParamsVectorSp_ = jnp.repeat(noise_params_splice, number_genes)
+            elif jnp.shape(noise_params_splice)[0] == number_genes:
                 self.noiseParamsVectorSp_ = noise_params_splice
             else:
                 print("Error: expect one splicing noise parameter per gene")
                 sys.exit()
 
-            if onp.isscalar(splice_ratio):
-                self.ratioSp_ = onp.repeat(splice_ratio, number_genes)
-            elif onp.shape(splice_ratio)[0] == number_genes:
+            if jnp.isscalar(splice_ratio):
+                self.ratioSp_ = jnp.repeat(splice_ratio, number_genes)
+            elif jnp.shape(splice_ratio)[0] == number_genes:
                 self.ratioSp_ = splice_ratio
             else:
                 print("Error: expect one splicing ratio parameter per gene")
                 sys.exit()
 
         self.key = None
+        self.seed = 0
 
     @property
     def create_kay(self):
@@ -326,7 +332,12 @@ class sergio(object):
             if state < self.sampling_state_:
                 self.sampling_state_ = state
 
-        self.scIndices_ = onp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
+        # self.scIndices_ = onp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
+        self.scIndices_ = jax.random.randint(key=self.create_kay,
+                                             minval=- self.sampling_state_ * self.nSC_,
+                                             maxval=0,
+                                             shape=self.nSC_
+                                             )
 
     def calculate_required_steps_(self, level, safety_steps=0):
         """
@@ -427,7 +438,7 @@ class sergio(object):
             binIndices = [gb.binID for gb in bin_list]
             currStep = bin_list[0].simulatedSteps_
             lastLayerGenes = onp.copy(self.level2verts_[level + 1])
-            hillMatrix = onp.zeros((len(regIndices), len(binIndices)))
+            hillMatrix = jnp.zeros((len(regIndices), len(binIndices)))
 
             for tupleIdx, rIdx in enumerate(regIndices):
                 # print "Here"
@@ -502,6 +513,7 @@ class sergio(object):
             sim_set = sim_set_keep_genes
 
     def calculate_noise(self, num_cells, decay, gID, prod_rate):
+        noise = None
         if self.noiseType_ == 'sp':
             # This notation is inconsistent with our formulation, dw should
             # include dt^0.5 as well, but here we multipy dt^0.5 later
@@ -518,8 +530,8 @@ class sergio(object):
         elif self.noiseType_ == "dpd":
             # TODO Current implementation is wrong, it should take different noise facotrs (noiseParamsVector_) for production and decay
             # Answer to above TODO: not neccessary! 'dpd' is already different than 'spd'
-            dw_p = onp.random.normal(size=num_cells)
-            dw_d = onp.random.normal(size=num_cells)
+            dw_p = normal_non_log(PRNGKey(self.seed), 0, 1, (num_cells,)) # onp.random.normal(size=num_cells)
+            dw_d = normal_non_log(PRNGKey(self.seed), 0, 1, (num_cells,)) # onp.random.normal(size=num_cells)
 
             amplitude_p = jnp.multiply(self.noiseParamsVector_[gID], jnp.power(jnp.array(prod_rate), 0.5))
             amplitude_d = jnp.multiply(self.noiseParamsVector_[gID], jnp.power(jnp.array(decay), 0.5))
@@ -528,6 +540,7 @@ class sergio(object):
         return noise
 
     def simulate(self, actions):
+        self.actions = actions
         for level in range(self.maxLevels_, -1, -1):
             print("Start simulating new level")
             self.CLE_simulator_(level)
@@ -637,15 +650,15 @@ class sergio(object):
                 nPopulation = 1
         else:
             parentBinID = int(binID)
-            nPopulation = int(max(1, onp.random.normal(20, 5)))
+            nPopulation = int(max(1, normal_non_log(PRNGKey(self.seed), 20, 5, (1,))))
             # self.nInitCells_[binID] = nPopulation
 
         for g in self.binDict[binID]:
             varU = jnp.true_divide(self.binDict[parentBinID][g.ID].ss_U_, 20)
             varS = jnp.true_divide(self.binDict[parentBinID][g.ID].ss_S_, 20)
 
-            deltaU = onp.random.normal(0, varU, size=nPopulation)
-            deltaS = onp.random.normal(0, varS, size=nPopulation)
+            deltaU = normal_non_log(PRNGKey(self.seed), 0, varU, (nPopulation,)) # onp.random.normal(0, varU, # size=nPopulation)
+            deltaS = normal_non_log(PRNGKey(self.seed), 0, varS, (nPopulation,)) # onp.random.normal(0, varS, size=nPopulation)
 
             for i in range(len(deltaU)):
                 g.append_Conc([self.binDict[parentBinID][g.ID].ss_U_ + deltaU[i]])
@@ -663,17 +676,13 @@ class sergio(object):
 
         else:
             params = self.graph_[gID]['params']
-            Ks = [jnp.abs(t[1]) for t in params]
-            Ks = jnp.array(Ks)
+            Ks = jnp.array([jnp.abs(t[1]) for t in params])
             regIndices = [t[0] for t in params]
             hillMatrix = jnp.zeros((len(regIndices), num_c_to_evolve))
 
             for tupleIdx, ri in enumerate(regIndices):
                 currRegConc = [self.binDict[binID][ri].Conc[i][-1] for i in range(num_c_to_evolve)]
                 for ci, cConc in enumerate(currRegConc):
-                    # hillMatrix[tupleIdx, ci] = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2],
-                    #                                       params[tupleIdx][1] < 0)
-
                     new_state = self.hill_(cConc, params[tupleIdx][3], params[tupleIdx][2], params[tupleIdx][1] < 0)
                     hillMatrix = jax.ops.index_update(
                         hillMatrix,
@@ -684,8 +693,7 @@ class sergio(object):
             return jnp.matmul(Ks, hillMatrix)
 
     def calculate_prod_rate_S_(self, gID, binID, num_c_to_evolve):
-        U = [self.binDict[binID][gID].Conc[i][-1] for i in range(num_c_to_evolve)]
-        U = jnp.array(U)
+        U = jnp.array([self.binDict[binID][gID].Conc[i][-1] for i in range(num_c_to_evolve)])
         return self.decayVector_[gID] * U
 
     def check_convergence_dynamics_(self, binID, num_init_cells):
@@ -696,9 +704,9 @@ class sergio(object):
             nConverged = 0
             for g in self.binDict[binID]:
                 if g.converged_ == False:
-                    currConc = onp.array([g.Conc[i][-10:] for i in range(num_init_cells)])
-                    meanU = onp.mean(currConc, axis=1)
-                    errU = onp.abs(meanU - g.ss_U_)
+                    currConc = jnp.array([g.Conc[i][-10:] for i in range(num_init_cells)])
+                    meanU = jnp.mean(currConc, axis=1)
+                    errU = jnp.abs(meanU - g.ss_U_)
 
                     if g.ss_U_ < 1:
                         t = 0.2 * g.ss_U_
@@ -713,9 +721,9 @@ class sergio(object):
                             break
 
                 elif g.converged_S_ == False:
-                    currConc = onp.array([g.Conc_S[i][-10:] for i in range(num_init_cells)])
-                    meanS = onp.mean(currConc, axis=1)
-                    errS = onp.abs(meanS - g.ss_S_)
+                    currConc = jnp.array([g.Conc_S[i][-10:] for i in range(num_init_cells)])
+                    meanS = jnp.mean(currConc, axis=1)
+                    errS = jnp.abs(meanS - g.ss_S_)
 
                     if g.ss_S_ < 1:
                         t = 0.2 * g.ss_S_
@@ -727,7 +735,6 @@ class sergio(object):
                             g.setConverged_S()
                             assert g.setConverged_S
                             break
-
                 else:
                     nConverged += 1
             print("converged %", nConverged / self.nGenes_)
@@ -737,7 +744,6 @@ class sergio(object):
                 return False
 
     def resume_after_convergence(self, binID):
-        print(self.binDict[binID][0].simulatedSteps_, "<", self.sampling_state_ * self.nConvSteps[binID], binID)
         if self.binDict[binID][0].simulatedSteps_ < self.sampling_state_ * self.nConvSteps[binID]:
             return True
         else:
@@ -771,7 +777,8 @@ class sergio(object):
                 noise_U = self.calculate_noise(nc, decay_U, gID, prod_rate_U)
                 noise_S = self.calculate_noise(nc, decay_S, gID, prod_rate_S)
 
-                curr_dU = self.dt_ * (prod_rate_U - decay_U) + jnp.power(self.dt_, 0.5) * noise_U
+                curr_dU = self.dt_ * (prod_rate_U - decay_U) + jnp.power(self.dt_, 0.5) * noise_U  # + self.actions[
+                # time, :, gg_ids]
                 curr_dS = self.dt_ * (prod_rate_S - decay_S) + jnp.power(self.dt_, 0.5) * noise_S
 
                 for i in range(nc):
@@ -807,6 +814,7 @@ class sergio(object):
                 resume = self.resume_after_convergence(binID)
 
     def simulate_dynamics(self, actions=None):
+        self.actions = actions
         self.calculate_ssConc_()
         for bi in self.binOrders_:
             print(f"Start simulating new cell type: {bi}")
@@ -928,19 +936,19 @@ class sergio(object):
         """
         This function
         """
-        out_indicator = jnp.random.binomial(n=1, p=outlier_prob, size=self.nGenes_)
+        out_indicator = onp.random.binomial(n=1, p=outlier_prob, size=self.nGenes_)
         outlierGenesIndx = jnp.where(out_indicator == 1)[0]
         numOutliers = len(outlierGenesIndx)
 
         #### generate outlier factors ####
-        outFactors = jnp.random.lognormal(mean=mean, sigma=scale, size=numOutliers)
+        outFactors = onp.random.lognormal(mean=mean, sigma=scale, size=numOutliers)
         ##################################
 
         U = jnp.concatenate(U_scData, axis=1)
         S = jnp.concatenate(S_scData, axis=1)
         for i, gIndx in enumerate(outlierGenesIndx):
-            U[gIndx, :] = U[gIndx, :] * outFactors[i]
-            S[gIndx, :] = S[gIndx, :] * outFactors[i]
+            U = jax.ops.index_update(U, jax.ops.index[gIndx, :], U[gIndx, :] * outFactors[i])
+            S = jax.ops.index_update(S, jax.ops.index[gIndx, :], S[gIndx, :] * outFactors[i])
 
         return jnp.split(U, self.nBins_, axis=1), jnp.split(S, self.nBins_, axis=1)
 
@@ -952,7 +960,7 @@ class sergio(object):
         ret_data_U = []
         ret_data_S = []
 
-        libFactors = jnp.random.lognormal(mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
+        libFactors = onp.random.lognormal(mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
         for binExprU, binExprS, binFactors in zip(U_scData, S_scData, libFactors):
             normalizFactors_U = jnp.sum(binExprU, axis=0)
             normalizFactors_S = jnp.sum(binExprS, axis=0)
@@ -976,8 +984,8 @@ class sergio(object):
         prob_ber_U = jnp.true_divide(1, 1 + jnp.exp(-1 * shape * (U_log - log_mid_point)))
         prob_ber_S = jnp.true_divide(1, 1 + jnp.exp(-1 * shape * (S_log - log_mid_point)))
 
-        binary_ind_U = jnp.random.binomial(n=1, p=prob_ber_U)
-        binary_ind_S = jnp.random.binomial(n=1, p=prob_ber_S)
+        binary_ind_U = onp.random.binomial(n=1, p=prob_ber_U)
+        binary_ind_S = onp.random.binomial(n=1, p=prob_ber_S)
 
         return binary_ind_U, binary_ind_S
 
@@ -987,4 +995,4 @@ class sergio(object):
         (e.g. with technical noise)
         """
 
-        return jnp.random.poisson(U_scData), jnp.random.poisson(S_scData)
+        return onp.random.poisson(U_scData), onp.random.poisson(S_scData)

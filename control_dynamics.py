@@ -1,3 +1,4 @@
+import sys
 import time
 
 import jax
@@ -34,25 +35,22 @@ def main_control_dynamics(number_genes,
         )
 
     def loss_fn(actions):
-        ret = jnp.zeros((env_dynamics.env.nBins_, env_dynamics.env.nGenes_, env_dynamics.env.nSC_))
         expression_unspliced, expression_spliced = env_dynamics.step(
-            actions.mean() + ret, ignore_technical_noise=True
+            actions,
+            ignore_technical_noise=False
             )
         return -jnp.mean(jnp.sum(jnp.power(expression_spliced, 2), axis=1))
 
-    actions = jnp.zeros(
-        (env_dynamics.env.sampling_state_ * env_dynamics.env.nSC_,
-         env_dynamics.env.nBins_,
-         env_dynamics.env.nGenes_)
-        ) + 0.1
+    shape = (env_dynamics.env.sampling_state_ * env_dynamics.env.nSC_, env_dynamics.env.nBins_, env_dynamics.env.nGenes_)
+    actions = jax.random.normal(shape=shape, key=env_dynamics.env.create_kay) + 0.1
 
-    for _ in range(1):
+    for _ in range(10):
         loss, grad = jax.value_and_grad(loss_fn)(actions)
         print("loss", loss)
         print(f"grad shape: {grad.shape} \n grad: {grad}")
         actions += 0.1 * -grad
 
-    print(f"Took {time.time() - start:.3f} sec.")
+    print(f"Took {time.time() - start:.3f} secs.")
 
 
 if __name__ == '__main__':

@@ -80,15 +80,15 @@ class EnvControlDynamics:
         self.env.build_graph(input_file_targets, input_file_regs, shared_coop_state)
 
     def step(self, actions, ignore_technical_noise=False) -> tuple:
-        self.simulate_dynamics()
+        self.simulate_dynamics(actions)
         exprU, exprS = self.get_expression_dynamics()
         if ignore_technical_noise:
             return (exprU, exprS)
         count_matrix_unspliced, count_matrix_spliced = self.add_technical_noise(exprU, exprS)
         return count_matrix_unspliced, count_matrix_spliced
 
-    def simulate_dynamics(self):
-        self.env.simulate_dynamics()
+    def simulate_dynamics(self, actions):
+        self.env.simulate_dynamics(actions)
 
     def get_expression_dynamics(self):
         exprU, exprS = self.env.getExpressions_dynamics()

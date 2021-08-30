@@ -12,7 +12,7 @@ bmat_file_toy = "duckie/2_cells_types_De-noised_100G_6T_300cPerT_dynamics_7_DS6_
 # small dynamics data
 filepath_small_dynamics_targets="scenicsergio/data/interactions.txt"
 filepath_small_dynamics_regulons="scenicsergio/data/regulons.txt"
-filepath_small_dynamics_bifurcation_matrix="scenicsergio/data/bifurcation.tab"
+filepath_small_dynamics_bifurcation_matrix="scenicsergio/data/bifurcation_matrix.tab"
 
 # preprocess_workflow.py user inputs
 filepath_adjancies_control = "data/scenic/mouse/control/GSE133382.adjacencies.npy"
