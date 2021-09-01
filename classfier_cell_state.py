@@ -150,7 +150,7 @@ class TranscriptomicsDataset(Dataset):
         self.normalize_data = normalize_by_max
         self.device = device
         self.data = np.load(filepath_data, allow_pickle=True)
-        self.num_genes_to_zero_for_batch_sgd = (self.data.shape[1] - num_genes_for_batch_sgd) -1
+        self.num_genes_to_zero_for_batch_sgd = (self.data.shape[1] - num_genes_for_batch_sgd) - 1
         self.num_genes_to_take_for_batch_sgd = num_genes_for_batch_sgd
         print(f"data input has size: {self.data.shape}")
         if isinstance(self.data[0, 0], str):
@@ -183,3 +183,30 @@ def train_val_dataset(dataset, val_split=0.25):
     train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=val_split)
     datasets = {'train': Subset(dataset, train_idx), 'val': Subset(dataset, val_idx)}
     return datasets
+
+
+def torch_to_jax(model=None):
+    import jax.experimental.stax as stax
+    import jax.random
+    if model is None:
+        model = CellStateClassifier(100)
+    init_fn, predict_fn = stax.serial(
+        stax.Dense(model.fc1.out_features, lambda *_: model.fc1.weight.detach().numpy().T, lambda *_: model.fc1.bias.detach().numpy()),
+        stax.Selu,
+        stax.Dense(model.fc2.out_features, lambda *_: model.fc2.weight.detach().numpy().T, lambda *_: model.fc2.bias.detach().numpy()),
+        stax.Selu,
+        stax.Dense(model.fc3.out_features, lambda *_: model.fc3.weight.detach().numpy().T, lambda *_: model.fc3.bias.detach().numpy()),
+    )
+    rng_key = jax.random.PRNGKey(0)
+    _, params = init_fn(rng_key, (model.fc1.in_features,))
+
+    def jax_model(x):
+        return predict_fn(params, x)
+
+    return jax_model
+
+
+if __name__ == '__main__':
+    predict_fn = torch_to_jax()
+    out = predict_fn(np.zeros((1, 100)))
+    print(out)
