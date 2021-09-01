@@ -1,5 +1,9 @@
 import os
 
+import experiment_buddy
+
+USE_BUDDY = False
+
 # dynamics inputs from original code SERGIO
 input_file_targets_dynamics = 'SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/Interaction_cID_7.txt'
 input_file_regs_dynamics = 'SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/Regs_cID_7.txt'
@@ -31,9 +35,20 @@ filepath_testset_control_2w = os.path.join(root_stacked_data, "control-2w-split"
 filepath_train_toy = "data/Tran_RGC_scRNA/npys/toy-data/split-control_and_2w_after_crush_5000x5000_toy/train.npy"
 filepath_test_toy = "data/Tran_RGC_scRNA/npys/toy-data/split-control_and_2w_after_crush_5000x5000_toy/test.npy"
 
+filepath_12_genes = "./control_disease_12_genes_expressions.npy"
+
 checkpoint_filepath_classifier = os.path.join("models/checkpoints")
 
-genes_per_single_cell = 5000  # 40790 #  5000
-epochs = 100
+genes_per_single_cell = 12  # 40790 #  5000
+epochs = 300
 batch_size = 64
 lr = 1e-3
+
+if USE_BUDDY:
+    experiment_buddy.register_defaults(locals())
+    tensorboard = experiment_buddy.deploy(
+        "",
+        sweep_yaml="",
+        proc_num=1,
+        wandb_kwargs={"project": "TOC"},
+    )

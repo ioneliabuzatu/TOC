@@ -1,12 +1,11 @@
 import numpy as np
 import torch
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import normalize
 from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
-from sklearn.preprocessing import normalize
-from sklearn.model_selection import train_test_split
-from torchvision.transforms import Compose, ToTensor, Resize
 from torch.utils.data import Subset
 
 
@@ -140,6 +139,14 @@ class CellStateClassifier(nn.Module):
 
 class TranscriptomicsDataset(Dataset):
     def __init__(self, filepath_data, device, normalize_by_max=True, num_genes_for_batch_sgd=5000):
+        """
+        :param filepath_data: stacked npy file with first rows genes names and last column the labels.
+        :param device:
+        :param normalize_by_max:
+        :param num_genes_for_batch_sgd:
+
+        self.labels_encoding is ["2weeks_after_crush", "contro"] so `label 0` is disease and `label 1` is control.
+        """
         self.normalize_data = normalize_by_max
         self.device = device
         self.data = np.load(filepath_data, allow_pickle=True)

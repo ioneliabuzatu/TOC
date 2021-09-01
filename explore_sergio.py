@@ -1,8 +1,10 @@
 import time
+
 import numpy as np
-from SERGIO.SERGIO.sergio import sergio
 import pandas as pd
+
 import config
+from SERGIO.SERGIO.sergio import sergio
 
 
 def steady_state(number_genes=None,
@@ -41,7 +43,7 @@ def differentiated_states(bmat_filepath,
                           genes_number):
     df = pd.read_csv(bmat_filepath, sep='\t', header=None, index_col=None)
     bMat = df.values
-    sim = sergio(number_genes=genes_number, number_bins=number_of_cell_types, number_sc=2, noise_params=0.2,
+    sim = sergio(number_genes=genes_number, number_bins=number_of_cell_types, number_sc=1, noise_params=0.2,
                  decays=0.8, sampling_state=1, noise_params_splice=0.07, noise_type='dpd',
                  dynamics=True, bifurcation_matrix=bMat)
     sim.build_graph(input_file_taregts=targets_filepath, input_file_regs=regs_filepath, shared_coop_state=2)

@@ -332,7 +332,6 @@ class sergio(object):
             if state < self.sampling_state_:
                 self.sampling_state_ = state
 
-        # self.scIndices_ = onp.random.randint(low=- self.sampling_state_ * self.nSC_, high=0, size=self.nSC_)
         self.scIndices_ = jax.random.randint(key=self.create_kay,
                                              minval=- self.sampling_state_ * self.nSC_,
                                              maxval=0,
@@ -672,7 +671,7 @@ class sergio(object):
         type = self.binDict[binID][gID].Type
         if (type == 'MR'):
             rates = self.graph_[gID]['rates']
-            return [rates[binID] for i in range(num_c_to_evolve)]
+            return jnp.array([rates[binID] for i in range(num_c_to_evolve)])
 
         else:
             params = self.graph_[gID]['params']
@@ -769,7 +768,7 @@ class sergio(object):
                 currU = [self.binDict[binID][gID].Conc[i][-1] for i in range(nc)]
                 currU = jnp.array(currU)
 
-                decay_U = onp.copy(prod_rate_S)
+                decay_U = jnp.asarray(prod_rate_S)
                 currS = [self.binDict[binID][gID].Conc_S[i][-1] for i in range(nc)]
                 currS = jnp.array(currS)
                 decay_S = jnp.true_divide(self.decayVector_[gID], self.ratioSp_[gID]) * currS
@@ -777,7 +776,7 @@ class sergio(object):
                 noise_U = self.calculate_noise(nc, decay_U, gID, prod_rate_U)
                 noise_S = self.calculate_noise(nc, decay_S, gID, prod_rate_S)
 
-                curr_dU = self.dt_ * (prod_rate_U - decay_U) + jnp.power(self.dt_, 0.5) * noise_U + self.actions[binID, gID]
+                curr_dU = self.dt_ * (prod_rate_U - decay_U) + jnp.power(self.dt_, 0.5) * noise_U * self.actions[binID, gID]
                 curr_dS = self.dt_ * (prod_rate_S - decay_S) + jnp.power(self.dt_, 0.5) * noise_S
 
                 for i in range(nc):
@@ -802,7 +801,6 @@ class sergio(object):
             converged = self.check_convergence_dynamics_(binID, nc)
 
             if self.nConvSteps[binID] == 0 and converged:
-                # self.nConvSteps[binID] = len(self.binDict[binID][0].Conc[0])
                 self.nConvSteps = jax.ops.index_update(
                     self.nConvSteps,
                     jax.ops.index[binID],
@@ -847,15 +845,12 @@ class sergio(object):
         key = self.create_kay
         out_indicator = jax.random.bernoulli(key=key, p=outlier_prob, shape=(self.nGenes_,))
         outlierGenesIndx = jnp.where(out_indicator == 1)[0]
-        numOutliers = len(outlierGenesIndx)
 
-        #### generate outlier factors ####
-        outFactors = lognormal(key, mean=mean, sigma=scale, size=(numOutliers,))
-        ##################################
+        outlier_factors = log_normal(key, mean=mean, sigma=scale, size=(len(outlierGenesIndx),))
 
         scData = jnp.concatenate(scData, axis=1)
         for i, gIndx in enumerate(outlierGenesIndx):
-            scData = jax.ops.index_update(scData, jax.ops.index[gIndx, :], scData[gIndx, :] * outFactors[i])
+            scData = jax.ops.index_update(scData, jax.ops.index[gIndx, :], scData[gIndx, :] * outlier_factors[i])
 
         return jnp.split(scData, self.nBins_, axis=1)
 
@@ -879,7 +874,7 @@ class sergio(object):
         # TODO make sure that having bins does not intefere with this implementation
         ret_data = []
         key = self.create_kay
-        libFactors = lognormal(key, mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
+        libFactors = log_normal(key, mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
         for binExprMatrix, binFactors in zip(scData, libFactors):
             normalizFactors = jnp.sum(binExprMatrix, axis=0)
             binFactors = jnp.true_divide(binFactors, normalizFactors)
@@ -933,33 +928,28 @@ class sergio(object):
 
     def outlier_effect_dynamics(self, U_scData, S_scData, outlier_prob, mean, scale):
         """
-        This function
+        When binomial is as bernoulli: https://math.stackexchange.com/questions/838107/what-is-the-difference-and
+        -relationship-between-the-binomial-and-bernoulli-distr
         """
-        out_indicator = onp.random.binomial(n=1, p=outlier_prob, size=self.nGenes_)
+        out_indicator = jax.random.bernoulli(PRNGKey(self.seed), p=outlier_prob, shape=(self.nGenes_,))
         outlierGenesIndx = jnp.where(out_indicator == 1)[0]
-        numOutliers = len(outlierGenesIndx)
 
-        #### generate outlier factors ####
-        outFactors = onp.random.lognormal(mean=mean, sigma=scale, size=numOutliers)
-        ##################################
+        outlier_factors = log_normal(PRNGKey(self.seed), mean, scale, (len(outlierGenesIndx),))
 
         U = jnp.concatenate(U_scData, axis=1)
         S = jnp.concatenate(S_scData, axis=1)
         for i, gIndx in enumerate(outlierGenesIndx):
-            U = jax.ops.index_update(U, jax.ops.index[gIndx, :], U[gIndx, :] * outFactors[i])
-            S = jax.ops.index_update(S, jax.ops.index[gIndx, :], S[gIndx, :] * outFactors[i])
+            U = jax.ops.index_update(U, jax.ops.index[gIndx, :], U[gIndx, :] * outlier_factors[i])
+            S = jax.ops.index_update(S, jax.ops.index[gIndx, :], S[gIndx, :] * outlier_factors[i])
 
         return jnp.split(U, self.nBins_, axis=1), jnp.split(S, self.nBins_, axis=1)
 
     def lib_size_effect_dynamics(self, U_scData, S_scData, mean, scale):
-        """
-        """
-
         # TODO make sure that having bins does not intefere with this implementation
         ret_data_U = []
         ret_data_S = []
 
-        libFactors = onp.random.lognormal(mean=mean, sigma=scale, size=(self.nBins_, self.nSC_))
+        libFactors = log_normal(PRNGKey(self.seed), mean, scale, size=(self.nBins_, self.nSC_))
         for binExprU, binExprS, binFactors in zip(U_scData, S_scData, libFactors):
             normalizFactors_U = jnp.sum(binExprU, axis=0)
             normalizFactors_S = jnp.sum(binExprS, axis=0)
@@ -983,8 +973,8 @@ class sergio(object):
         prob_ber_U = jnp.true_divide(1, 1 + jnp.exp(-1 * shape * (U_log - log_mid_point)))
         prob_ber_S = jnp.true_divide(1, 1 + jnp.exp(-1 * shape * (S_log - log_mid_point)))
 
-        binary_ind_U = onp.random.binomial(n=1, p=prob_ber_U)
-        binary_ind_S = onp.random.binomial(n=1, p=prob_ber_S)
+        binary_ind_U = jax.random.bernoulli(PRNGKey(self.seed), p=prob_ber_U)
+        binary_ind_S = jax.random.bernoulli(PRNGKey(self.seed), p=prob_ber_S)
 
         return binary_ind_U, binary_ind_S
 
@@ -993,5 +983,6 @@ class sergio(object):
         Input: scData can be the output of simulator or any refined version of it
         (e.g. with technical noise)
         """
-
-        return onp.random.poisson(U_scData), onp.random.poisson(S_scData)
+        unspliced_umi_counts = jax.random.poisson(PRNGKey(self.seed), U_scData, shape=U_scData.shape)
+        spliced_umi_counts = jax.random.poisson(PRNGKey(self.seed), S_scData, shape=S_scData.shape)
+        return unspliced_umi_counts, spliced_umi_counts

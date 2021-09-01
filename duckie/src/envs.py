@@ -1,8 +1,8 @@
 import jax
-
-import duckie.sergio_control
 import jax.numpy as jnp
 import pandas as pd
+
+import duckie.sergio_control
 
 
 class EnvControlSteadyState(object):
@@ -83,7 +83,9 @@ class EnvControlDynamics:
         self.simulate_dynamics(actions)
         exprU, exprS = self.get_expression_dynamics()
         if ignore_technical_noise:
-            return (exprU, exprS)
+            exprU_clean = jnp.concatenate(exprU, axis=1)
+            exprS_clean = jnp.concatenate(exprS, axis=1)
+            return exprU_clean, exprS_clean
         count_matrix_unspliced, count_matrix_spliced = self.add_technical_noise(exprU, exprS)
         return count_matrix_unspliced, count_matrix_spliced
 
@@ -100,7 +102,8 @@ class EnvControlDynamics:
         binary_indU, binary_indS = self.env.dropout_indicator_dynamics(exprU_O_L, exprS_O_L, shape=6.5, percentile=82)
         exprU_O_L_D = jnp.multiply(binary_indU, exprU_O_L)
         exprS_O_L_D = jnp.multiply(binary_indS, exprS_O_L)
-        count_matrix_U, count_matrix_S = self.env.convert_to_UMIcounts_dynamics(exprU_O_L_D, exprS_O_L_D)
-        count_matrix_unspliced = jnp.concatenate(count_matrix_U, axis=1)
-        count_matrix_spliced = jnp.concatenate(count_matrix_S, axis=1)
-        return count_matrix_unspliced, count_matrix_spliced
+        return exprU_O_L_D, exprS_O_L_D
+        # count_matrix_U, count_matrix_S = self.env.convert_to_UMIcounts_dynamics(exprU_O_L_D, exprS_O_L_D)
+        # count_matrix_unspliced = jnp.concatenate(count_matrix_U, axis=1)
+        # count_matrix_spliced = jnp.concatenate(count_matrix_S, axis=1)
+        # return count_matrix_unspliced.T, count_matrix_spliced.T
