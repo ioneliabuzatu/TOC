@@ -10,10 +10,11 @@ import wandb
 
 import config
 from classfier_cell_state import CellStateClassifier
+from classfier_cell_state import torch_to_jax
 from duckie.src.envs import EnvControlDynamics
 
 
-def bce_w_logits(x, y, weight=None, average=True):
+def jax_bce_w_logits(x, y, weight=None, average=True):
     """
     Binary Cross Entropy Loss
     Should be numerically stable, built based on: https://github.com/pytorch/pytorch/issues/751
@@ -69,27 +70,24 @@ def main_control_dynamics(number_genes,
     network.load_state_dict(loaded_checkpoint)
     network.eval()
     expert_metric_loss = nn.BCEWithLogitsLoss()
+    network = torch_to_jax(network)
 
     def loss_fn(actions, model=network, state_loss=expert_metric_loss):
         expression_unspliced, expression_spliced = env_dynamics.step(
             actions,
             ignore_technical_noise=False
         )
-        expert_prediction = model(torch.tensor(np.array(expression_spliced.T[:, :, 1].primal)).float())
-        expert_prediction = jnp.array(expert_prediction.detach().numpy())
+        expert_prediction = model(expression_spliced.T[:, :, 1])
         truth_diseased = jnp.array(torch.tensor([0.]).unsqueeze(1))
         # truth_control = jnp.array(torch.tensor([1.]).unsqueeze(1))
         # truth_control = torch.tensor([1.]).unsqueeze(1)
-        # error = state_loss(expert_prediction.unsqueeze(1), truth_control)
-        error = bce_w_logits(expert_prediction, truth_diseased)
-        # return error
-        return -jnp.mean(jnp.sum(jnp.power(expression_spliced, 2), axis=1))
-        # return -jnp.mean(jnp.sum(jnp.power(2, 2), axis=1))
+        error = jax_bce_w_logits(expert_prediction, truth_diseased)
+        return error
 
     shape = (env_dynamics.env.nBins_, env_dynamics.env.nGenes_)
     actions = jnp.zeros(shape=shape) + 0.1
 
-    for _ in range(10):
+    for _ in range(1000000):
         loss, grad = jax.value_and_grad(loss_fn)(actions)
         wandb.log({'loss': float(loss)})
         print("loss", loss)
@@ -97,6 +95,10 @@ def main_control_dynamics(number_genes,
         actions += 0.001 * -grad
         wandb.log({"gradients cell condition 0": wandb.Histogram(np_histogram=np.histogram(grad[0]))})
         wandb.log({"gradients cell condition 1": wandb.Histogram(np_histogram=np.histogram(grad[1]))})
+        # x_labels = [i for i in range(grad.shape[0])]
+        # y_labels = [i for i in range(grad.shape[1])]
+        # wandb.log({'heatmap_with_text': wandb.plots.HeatMap(x_labels, y_labels, grad, show_text=False)})
+        # wandb.log({'heatmap': wandb.plots.HeatMap(["healthy", "unhealthy"], y_labels, grad.T, show_text=False)})
 
     print(f"Took {time.time() - start:.3f} secs.")
 
