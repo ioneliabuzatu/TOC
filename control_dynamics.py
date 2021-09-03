@@ -1,4 +1,3 @@
-import os
 import time
 
 import jax
@@ -70,8 +69,7 @@ def main_control_dynamics(number_genes,
     )
 
     network = CellStateClassifier(num_genes=config.genes_per_single_cell).to("cpu")
-    checkpoint_filepath = os.path.join("models/checkpoints", "classifier_12_genes.pth")
-    loaded_checkpoint = torch.load(checkpoint_filepath, map_location=lambda storage, loc: storage)
+    loaded_checkpoint = torch.load(config.checkpoint_filepath, map_location=lambda storage, loc: storage)
     network.load_state_dict(loaded_checkpoint)
     network.eval()
     network = torch_to_jax(network)

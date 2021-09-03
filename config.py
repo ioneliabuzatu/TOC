@@ -2,7 +2,8 @@ import os
 
 import experiment_buddy
 
-USE_BUDDY = False
+USE_BUDDY = True
+RUN_LOCALLY = False
 
 # dynamics inputs from original code SERGIO
 input_file_targets_dynamics = 'SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/Interaction_cID_7.txt'
@@ -39,6 +40,7 @@ filepath_12_genes = "./control_disease_12_genes_expressions.npy"
 gene_names = ["Ank2", "Cartpt", "Chrm2", "Eomes", "Kctd4", "Mafb", "Neurod2", "Opn4","Pou4f3", "Ttn", "mt-Cytb","mt-Nd4"]
 
 checkpoint_filepath_classifier = os.path.join("models/checkpoints")
+checkpoint_filepath = os.path.join("models/checkpoints", "classifier_12_genes.pth")
 
 genes_per_single_cell = 12  # 40790 #  5000
 epochs = 300
@@ -51,5 +53,4 @@ if USE_BUDDY:
         "",
         sweep_yaml="",
         proc_num=1,
-        wandb_kwargs={"project": "TOC"},
     )
