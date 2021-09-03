@@ -36,6 +36,7 @@ filepath_train_toy = "data/Tran_RGC_scRNA/npys/toy-data/split-control_and_2w_aft
 filepath_test_toy = "data/Tran_RGC_scRNA/npys/toy-data/split-control_and_2w_after_crush_5000x5000_toy/test.npy"
 
 filepath_12_genes = "./control_disease_12_genes_expressions.npy"
+gene_names = ["Ank2", "Cartpt", "Chrm2", "Eomes", "Kctd4", "Mafb", "Neurod2", "Opn4","Pou4f3", "Ttn", "mt-Cytb","mt-Nd4"]
 
 checkpoint_filepath_classifier = os.path.join("models/checkpoints")
 

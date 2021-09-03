@@ -7,13 +7,12 @@ import matplotlib.pylab as plt
 import numpy as np
 import seaborn as sns
 import torch
-import torch.nn as nn
 import wandb
 
 import config
-from classfier_cell_state import CellStateClassifier
-from classfier_cell_state import torch_to_jax
 from duckie.src.envs import EnvControlDynamics
+from models.expert.classfier_cell_state import CellStateClassifier
+from models.expert.classfier_cell_state import torch_to_jax
 
 
 def jax_bce_w_logits(x, y, weight=None, average=True):
@@ -33,9 +32,13 @@ def jax_bce_w_logits(x, y, weight=None, average=True):
         loss = loss * weight
 
     if average:
-        return loss.mean()
+        loss_mean = loss.mean()
+        assert loss_mean > 0
+        return loss_mean
     else:
-        return loss.sum()
+        loss_sum = loss.sum()
+        assert loss_sum > 0
+        return loss_sum
 
 
 def main_control_dynamics(number_genes,
@@ -71,7 +74,6 @@ def main_control_dynamics(number_genes,
     loaded_checkpoint = torch.load(checkpoint_filepath, map_location=lambda storage, loc: storage)
     network.load_state_dict(loaded_checkpoint)
     network.eval()
-    expert_metric_loss = nn.BCEWithLogitsLoss()
     network = torch_to_jax(network)
 
     def loss_fn(actions, model=network):
@@ -83,9 +85,9 @@ def main_control_dynamics(number_genes,
         expert_prediction_unhealthy_state = model(expression_spliced.T[:, :, 1])
         truth_diseased = jnp.array(torch.tensor([0.]).unsqueeze(1))
         truth_control = jnp.array(torch.tensor([1.]).unsqueeze(1))
-        error_disease = jax_bce_w_logits(expert_prediction_unhealthy_state, truth_diseased)
-        error_control = jax_bce_w_logits(expert_prediction_healthy_state, truth_control)
-        return error_disease
+        error_diseased_state = jax_bce_w_logits(expert_prediction_unhealthy_state, truth_diseased)
+        error_healthy_state = jax_bce_w_logits(expert_prediction_healthy_state, truth_control)
+        return - error_healthy_state - error_diseased_state
 
     shape = (env_dynamics.env.nBins_, env_dynamics.env.nGenes_)
     actions = jnp.zeros(shape=shape) + 0.1
@@ -98,7 +100,11 @@ def main_control_dynamics(number_genes,
         actions += 0.001 * -grad
         wandb.log({"gradients cell condition 0": wandb.Histogram(np_histogram=np.histogram(grad[0]))})
         wandb.log({"gradients cell condition 1": wandb.Histogram(np_histogram=np.histogram(grad[1]))})
-        wandb.log({"gradsxgenesxconditions": wandb.Image(sns.heatmap(grad, linewidth=0.5))})
+        wandb.log({"grads_x_genes_x_conditions": wandb.Image(
+            sns.heatmap(grad,
+                        linewidth=0.5,
+                        xticklabels=config.gene_names
+                        ))})
         plt.close()
 
     print(f"Took {time.time() - start:.3f} secs.")

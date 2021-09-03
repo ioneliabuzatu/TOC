@@ -10,12 +10,12 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import config
-from classfier_cell_state import CellStateClassifier
-from classfier_cell_state import TranscriptomicsDataset
-from classfier_cell_state import evaluate
-from classfier_cell_state import get_accuracy
-from classfier_cell_state import train_val_dataset
-from classfier_cell_state import update
+from models.expert.classfier_cell_state import CellStateClassifier
+from models.expert.classfier_cell_state import TranscriptomicsDataset
+from models.expert.classfier_cell_state import evaluate
+from models.expert.classfier_cell_state import get_accuracy
+from models.expert.classfier_cell_state import train_val_dataset
+from models.expert.classfier_cell_state import update
 
 
 def train(filepath_training_data, epochs=200):
@@ -39,7 +39,7 @@ def train(filepath_training_data, epochs=200):
     train_and_val_dataset = train_val_dataset(dataset, val_split=0.25)
     train_dataloader = DataLoader(train_and_val_dataset["train"], batch_size=config.batch_size, shuffle=True)
     val_dataloader = DataLoader(train_and_val_dataset["val"], batch_size=config.batch_size, shuffle=True)
-    
+
     val_accuracy = float("-inf")
     for epoch in tqdm(range(epochs)):
         train_errors = update(network, train_dataloader, criterium, sgd)
