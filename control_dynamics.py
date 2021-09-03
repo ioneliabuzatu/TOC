@@ -3,7 +3,9 @@ import time
 
 import jax
 import jax.numpy as jnp
+import matplotlib.pylab as plt
 import numpy as np
+import seaborn as sns
 import torch
 import torch.nn as nn
 import wandb
@@ -47,7 +49,7 @@ def main_control_dynamics(number_genes,
                           input_file_regs,
                           bMat: str,
                           ):
-    wandb.init(project="TOC")
+    wandb.init(project="TranscriptomicsOptimalControl")
 
     start = time.time()
     env_dynamics = EnvControlDynamics(
@@ -72,17 +74,18 @@ def main_control_dynamics(number_genes,
     expert_metric_loss = nn.BCEWithLogitsLoss()
     network = torch_to_jax(network)
 
-    def loss_fn(actions, model=network, state_loss=expert_metric_loss):
+    def loss_fn(actions, model=network):
         expression_unspliced, expression_spliced = env_dynamics.step(
             actions,
             ignore_technical_noise=False
         )
-        expert_prediction = model(expression_spliced.T[:, :, 1])
+        expert_prediction_healthy_state = model(expression_spliced.T[:, :, 0])
+        expert_prediction_unhealthy_state = model(expression_spliced.T[:, :, 1])
         truth_diseased = jnp.array(torch.tensor([0.]).unsqueeze(1))
-        # truth_control = jnp.array(torch.tensor([1.]).unsqueeze(1))
-        # truth_control = torch.tensor([1.]).unsqueeze(1)
-        error = jax_bce_w_logits(expert_prediction, truth_diseased)
-        return error
+        truth_control = jnp.array(torch.tensor([1.]).unsqueeze(1))
+        error_disease = jax_bce_w_logits(expert_prediction_unhealthy_state, truth_diseased)
+        error_control = jax_bce_w_logits(expert_prediction_healthy_state, truth_control)
+        return error_disease
 
     shape = (env_dynamics.env.nBins_, env_dynamics.env.nGenes_)
     actions = jnp.zeros(shape=shape) + 0.1
@@ -95,10 +98,8 @@ def main_control_dynamics(number_genes,
         actions += 0.001 * -grad
         wandb.log({"gradients cell condition 0": wandb.Histogram(np_histogram=np.histogram(grad[0]))})
         wandb.log({"gradients cell condition 1": wandb.Histogram(np_histogram=np.histogram(grad[1]))})
-        # x_labels = [i for i in range(grad.shape[0])]
-        # y_labels = [i for i in range(grad.shape[1])]
-        # wandb.log({'heatmap_with_text': wandb.plots.HeatMap(x_labels, y_labels, grad, show_text=False)})
-        # wandb.log({'heatmap': wandb.plots.HeatMap(["healthy", "unhealthy"], y_labels, grad.T, show_text=False)})
+        wandb.log({"gradsxgenesxconditions": wandb.Image(sns.heatmap(grad, linewidth=0.5))})
+        plt.close()
 
     print(f"Took {time.time() - start:.3f} secs.")
 
