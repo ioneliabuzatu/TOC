@@ -130,10 +130,17 @@ dmypy.json
 *zip
 .idea
 Tran_RGC_scRNA/
-scenic
+data/scenic
 *npy
 cuml/
 runs/
 wandb/
 dask-worker-space/
-src/
+pySCENIC/
+models/checkpoints
+SERGIO
+*.gz
+*.csv
+*.tab
+*.json
+>>>>>>> main
