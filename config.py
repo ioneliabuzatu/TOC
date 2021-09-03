@@ -2,10 +2,8 @@ import os
 
 import experiment_buddy
 
-<<<<<<< HEAD
 root_data = "/publicwork/students/buzatu"
-=======
-USE_BUDDY = True
+USE_BUDDY = False
 RUN_LOCALLY = False
 
 # dynamics inputs from original code SERGIO
@@ -26,7 +24,6 @@ filepath_small_dynamics_bifurcation_matrix="scenicsergio/data/bifurcation_matrix
 filepath_adjancies_control = "data/scenic/mouse/control/GSE133382.adjacencies.npy"
 filepath_adjancies_disease = "data/scenic/mouse/diseased/GSE133382.disease.adjacencies.npy"
 
->>>>>>> main
 root_npys = "data/Tran_RGC_scRNA/npys"
 root_toy_data = "data/Tran_RGC_scRNA/npys/toy-data"
 root_stacked_data = "data/Tran_RGC_scRNA/npys/stacked"
@@ -34,13 +31,9 @@ all_rna_data_npy_filepath = "data/Tran_RGC_scRNA/npys/stacked/control_4d_1w_2w.n
 PATH_TO_UNZIPPED_CSV_FILES = "data/Tran_RGC_scRNA/unzipped"
 root_single_processed_npy_files = "data/Tran_RGC_scRNA/npys/processed-data"
 filepath_toy_for_training = root_toy_data + "/control_and_2w_after_crush_5000x5000_toy.npy"
-<<<<<<< HEAD
 filepath_tmp = root_data + "/control_and_2w_after_crush_9999x24999_toy.npy"
 filepath_full_control_2w = os.path.join(root_data, "control_2w.npy")
 
-genes_per_single_cell =24999# 40791 #  5000
-epochs = 200
-=======
 filepath_full_control_2w = os.path.join(root_stacked_data, "control_2w.npy")
 filepath_trainset_control_2w = os.path.join(root_stacked_data, "control-2w-split", "trainset_control_2w.npy")
 filepath_testset_control_2w = os.path.join(root_stacked_data, "control-2w-split", "testset_control_2w.npy")
@@ -55,7 +48,6 @@ checkpoint_filepath = os.path.join("models/checkpoints", "classifier_12_genes.pt
 
 genes_per_single_cell = 12  # 40790 #  5000
 epochs = 300
->>>>>>> main
 batch_size = 64
 lr = 1e-3
 
