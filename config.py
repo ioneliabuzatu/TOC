@@ -2,8 +2,8 @@ import os
 
 import experiment_buddy
 
-USE_BUDDY = True
-RUN_LOCALLY = False
+USE_BUDDY = False
+RUN_LOCALLY = True
 
 # dynamics inputs from original code SERGIO
 input_file_targets_dynamics = 'SERGIO/data_sets/De-noised_100G_6T_300cPerT_dynamics_7_DS6/Interaction_cID_7.txt'
@@ -14,10 +14,15 @@ input_file_targets_dynamics_toy = "duckie/2_cells_types_De-noised_100G_6T_300cPe
 input_file_regs_dynamics_toy = "duckie/2_cells_types_De-noised_100G_6T_300cPerT_dynamics_7_DS6_Regs_cID_7.txt"
 bmat_file_toy = "duckie/2_cells_types_De-noised_100G_6T_300cPerT_dynamics_7_DS6_bMat_cID7.tab"
 
-# small dynamics data
-filepath_small_dynamics_targets="scenicsergio/data/interactions.txt"
-filepath_small_dynamics_regulons="scenicsergio/data/regulons.txt"
-filepath_small_dynamics_bifurcation_matrix="scenicsergio/data/bifurcation_matrix.tab"
+# small dynamics data healthy
+filepath_small_dynamics_targets_healthy="scenicsergio/data/healthy/healthy_interactions.txt"
+filepath_small_dynamics_regulons_healthy="scenicsergio/data/healthy/healthy_regulons.txt"
+filepath_small_dynamics_bifurcation_matrix_healthy="scenicsergio/data/bifurcation_matrix.tab"
+
+# small dynamics data dieased
+filepath_small_dynamics_targets_diseased="scenicsergio/data/diseased/disease_interactions.txt"
+filepath_small_dynamics_regulons_diseased="scenicsergio/data/diseased/disease_regulons.txt"
+filepath_small_dynamics_bifurcation_matrix_diseased="scenicsergio/data/bifurcation_matrix.tab"
 
 # preprocess_workflow.py user inputs
 filepath_adjancies_control = "data/scenic/mouse/control/GSE133382.adjacencies.npy"
@@ -37,7 +42,11 @@ filepath_train_toy = "data/Tran_RGC_scRNA/npys/toy-data/split-control_and_2w_aft
 filepath_test_toy = "data/Tran_RGC_scRNA/npys/toy-data/split-control_and_2w_after_crush_5000x5000_toy/test.npy"
 
 filepath_12_genes = "./control_disease_12_genes_expressions.npy"
-gene_names = ["Ank2", "Cartpt", "Chrm2", "Eomes", "Kctd4", "Mafb", "Neurod2", "Opn4","Pou4f3", "Ttn", "mt-Cytb","mt-Nd4"]
+control_gene_names = ["Ank2", "Cartpt", "Chrm2", "Eomes", "Kctd4", "Mafb",
+                      "Neurod2", "Opn4","Pou4f3", "Ttn", "mt-Cytb", "mt-Nd4"]
+disease_gene_names = ["Aes", "Dbp", "Ddit3", "E130218I03Rik", "Eomes", "Gm13889",
+                      "Jun", "Malat1", "Mgarp", "Opn4", "Rgs4", "Scn1b"]
+
 
 checkpoint_filepath_classifier = os.path.join("models/checkpoints")
 checkpoint_filepath = os.path.join("models/checkpoints", "classifier_12_genes.pth")

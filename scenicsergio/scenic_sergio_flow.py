@@ -72,7 +72,7 @@ class ScenicSergioFlow(object):
             adjacency = self.trim_interactions(adjacency)
 
         cycle_edges_tobe_removed = self._break_cycles(adjacency)
-        logging.info("The interactions to be ignored/removed: ", cycle_edges_tobe_removed)
+        # logging.info("The interactions to be ignored/removed: ", cycle_edges_tobe_removed)
         tot_unique_ids, master_regulons, non_regulons_pairs = self.unique_ids_master_regulons_non_regulons_pairs(
             adjacency)
         genes_ids_to_names_mapping = {k: v for v, k in enumerate(tot_unique_ids)}
@@ -207,7 +207,7 @@ class ScenicSergioFlow(object):
         interactions_tfs_per_target_gene = {}
         visited_regulons = {k: False for k in regulons_list}
 
-        with open("./scenicsergio/data/regulons.txt", "w") as file_regulons:
+        with open(self.filepath_to_save_regulons, "w") as file_regulons:
             for interaction in adjacency:
                 tf, target_gene, importance = interaction
 
@@ -225,9 +225,8 @@ class ScenicSergioFlow(object):
 
         return interactions_tfs_per_target_gene
 
-    @staticmethod
-    def save_interactions_to_txt_file(interactions_tfs_per_target_gene):
-        with open("./scenicsergio/data/interactions.txt", "w") as file:
+    def save_interactions_to_txt_file(self, interactions_tfs_per_target_gene):
+        with open(self.filepath_to_save_interactions, "w") as file:
             for target_gene_index, (tfs, importances) in interactions_tfs_per_target_gene.items():
                 assert len(tfs) == len(importances), "Error in creating the target genes dictionary!"
                 tf_for_target_gene_ids = ",".join([str(float(tf)) for tf in tfs])

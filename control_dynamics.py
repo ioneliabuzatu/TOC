@@ -79,8 +79,8 @@ def main_control_dynamics(number_genes,
             actions,
             ignore_technical_noise=False
         )
-        expert_prediction_healthy_state = model(expression_spliced.T[:, :, 0])
-        expert_prediction_unhealthy_state = model(expression_spliced.T[:, :, 1])
+        expert_prediction_healthy_state = model(expression_spliced.T[:, :, 1])
+        expert_prediction_unhealthy_state = model(expression_spliced.T[:, :, 0])
         truth_diseased = jnp.array(torch.tensor([0.]).unsqueeze(1))
         truth_control = jnp.array(torch.tensor([1.]).unsqueeze(1))
         error_diseased_state = jax_bce_w_logits(expert_prediction_unhealthy_state, truth_diseased)
@@ -101,7 +101,7 @@ def main_control_dynamics(number_genes,
         wandb.log({"grads_x_genes_x_conditions": wandb.Image(
             sns.heatmap(grad,
                         linewidth=0.5,
-                        xticklabels=config.gene_names
+                        xticklabels=config.disease_gene_names
                         ))})
         plt.close()
 
@@ -118,7 +118,7 @@ if __name__ == '__main__':
             decays=0.8,
             sampling_state=3,
             noise_type='dpd',
-            input_file_targets=config.filepath_small_dynamics_targets,
-            input_file_regs=config.filepath_small_dynamics_regulons,
-            bMat=config.filepath_small_dynamics_bifurcation_matrix,
+            input_file_targets=config.filepath_small_dynamics_targets_diseased,
+            input_file_regs=config.filepath_small_dynamics_regulons_diseased,
+            bMat=config.filepath_small_dynamics_bifurcation_matrix_diseased,
         )
