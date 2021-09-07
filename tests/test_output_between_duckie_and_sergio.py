@@ -18,7 +18,7 @@ class TestOutputComparison(TestCase):
         # duckie env
         env_duckie = duckie.sergio_rewrite.sergio(sampling_state=3, **init_shared_params)
         env_duckie.build_graph(**build_graph_shared_params)
-        actions = np.zeros((env_duckie.sampling_state_ * env_duckie.nSC_, env_duckie.nBins_, env_duckie.nGenes_))
+        actions = np.zeros((env_duckie.sampling_state_ * env_duckie.num_sc, env_duckie.num_bins, env_duckie.num_genes))
         expression_duckie = env_duckie.simulate(actions)
         mean_expression_duckie = expression_duckie.mean()
         print(f"duckie expression:\n\tmean: {mean_expression_duckie} \n\tstd: {expression_duckie.std()}")

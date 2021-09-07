@@ -488,7 +488,7 @@ class sergio:
         assert self.right_nans(new_state_concentration.mean(-1), not_mr_global_idx)
         assert self.right_nans(connection_strength, not_mr_global_idx)
 
-        connection_strength = np.expand_dims(connection_strength, -1).repeat(self.nBins_, -1)
+        connection_strength = np.expand_dims(connection_strength, -1).repeat(self.num_bins, -1)
         k = np.multiply(np.abs(connection_strength), new_state_concentration)  # TODO: is this element wise multiply?
         k_active = jax.ops.index_update(k, np.isnan(k), 0.)
         k_total = k_active.sum(1)
