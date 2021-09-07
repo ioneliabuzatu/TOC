@@ -19,7 +19,7 @@ class sergio:
         self.tol_ = tol
         self.winLen_ = window_length
         self.dt_ = dt
-        self.level2verts_ = {}
+        self.graph_level = {}
         self.gene_to_len = collections.defaultdict(int)
         self.gID_to_level_and_idx = {}  # This dictionary gives the level and idx in self.level2verts_ of a given gene ID
         self.binDict = {}  # This maps bin ID to list of gene objects in that bin; only used for dynamics simulations
@@ -31,7 +31,7 @@ class sergio:
         self.decay_rate = decays
 
         self.global_state = onp.full((self.sampling_state_ * self.nSC_, self.nGenes_, self.nBins_), -1, dtype=jnp.float32)
-        self.simulation_time = onp.zeros(self.nGenes_, dtype=int)
+        self.simulation_time = None
         self.half_responses = None
         self.pdt = jnp.power(self.dt_, 0.5)
 
@@ -67,7 +67,7 @@ class sergio:
         allRegs = []
         allTargets = []
         self.params = {}
-        self.b = onp.zeros((self.nGenes_, self.nBins_,))
+        self.basal_prod_rate = onp.zeros((self.nGenes_, self.nBins_,))
         self.K = onp.zeros((self.nGenes_, self.nGenes_))
         self.adjacency = onp.zeros((self.nGenes_, self.nGenes_))
 
@@ -109,7 +109,7 @@ class sergio:
                     raise Exception("Error: Inconsistent number of bins")
 
                 masterRegs.append(row0)
-                self.b[row0] = [float(i) for i in row[1:]]
+                self.basal_prod_rate[row0] = [float(i) for i in row[1:]]
                 self.graph_[row0]['regs'] = []
                 self.graph_[row0]['level'] = -1
 
@@ -125,12 +125,13 @@ class sergio:
 
         self.find_levels_()  # make sure that this modifies the graph
 
-        self.b = jnp.array(self.b)
+        self.basal_prod_rate = jnp.array(self.basal_prod_rate)
         self.K = jnp.array(self.K)
         self.adjacency = jnp.array(self.adjacency)
 
         self._targets = {k: sorted(v) for k, v in self._targets.items()}
         self.half_responses = jnp.zeros((self.nGenes_, self.nGenes_))
+        self.simulation_time = onp.zeros(self.maxLevels_ + 1, dtype=int)
 
     def find_levels_(self):
         """
@@ -152,7 +153,7 @@ class sergio:
         V = set(self.graph_.keys())
 
         currLayer = 0
-        self.level2verts_[currLayer] = []
+        self.graph_level[currLayer] = []
         idx = 0
 
         while U != V:
@@ -164,41 +165,34 @@ class sergio:
                 U.add(v)
                 if {v}.issubset(self.master_regulators_idx_):
                     allBinList = [gene(self, v, 'MR', i) for i in range(self.nBins_)]
-                    self.level2verts_[currLayer].append(allBinList)
+                    self.graph_level[currLayer].append(allBinList)
                     self.gID_to_level_and_idx[v] = (currLayer, idx)
                     idx += 1
                 else:
                     allBinList = [gene(self, v, 'T', i) for i in range(self.nBins_)]
-                    self.level2verts_[currLayer].append(allBinList)
+                    self.graph_level[currLayer].append(allBinList)
                     self.gID_to_level_and_idx[v] = (currLayer, idx)
                     idx += 1
 
             currLayer += 1
             Z = Z.union(U)
-            self.level2verts_[currLayer] = []
+            self.graph_level[currLayer] = []
             idx = 0
 
-        self.level2verts_.pop(currLayer)
+        self.graph_level.pop(currLayer)
         self.maxLevels_ = currLayer - 1
         self.scIndices_ = jnp.array(self.global_state.shape[0] + onp.random.randint(low=-self.sampling_state_ * self.nSC_, high=0, size=self.nSC_))
 
-    def calculate_half_response_(self, level):
-        currGenes = self.level2verts_[level]
-        if level == len(self.level2verts_) - 1:
-            assert all([g[0].is_master_regulator for g in currGenes])
-            return
-
-        gg_ids = onp.array([gg[0].ID for gg in currGenes if not gg[0].is_master_regulator])
+    def calculate_half_response_(self, currGenes, gg_ids):
+        # In the original implementation MR genes don't have half response, here we calculate it anyway since it will be multiplied by 0 later.
         adjs = self.adjacency[gg_ids]
-        gs = self.global_state[self.scIndices_]
+        gs = self.global_state[self.scIndices_, :, :]
         mes = []
         for g, adj in zip(currGenes, adjs):  # g is list of all bins for a single gene
-            if not g[0].is_master_regulator:
-                # gg_idx = g[0].ID
-                # gs = self.global_state[self.scIndices_]
-                valid_gs = jnp.einsum("tgb,g->tgb", gs, adj)  # This should be out of the loop
-                me = jnp.mean(valid_gs, (0, 2))
-                mes.append(me)
+            # MR have 0 adj matrix so their HR will be zero.
+            valid_gs = jnp.einsum("tgb,g->tgb", gs, adj)  # This should be out of the loop
+            me = jnp.mean(valid_gs, (0, 2))
+            mes.append(me)
         mes = jnp.array(mes)
         self.half_responses = jax.ops.index_add(self.half_responses, jax.ops.index[gg_ids, :], mes)
 
@@ -244,17 +238,12 @@ class sergio:
         response = jax.ops.index_update(response, jax.ops.index[:, repressive], 1 - response[:, repressive])
         return response + repressive * (~is_active).T
 
-    def init_gene_bin_conc_(self, level):
-        currGenes = self.level2verts_[level]
-
-        gg_ids, times = zip(*[(g[0].ID, self.simulation_time[g[0].ID]) for g in currGenes])
-        assert all(times[0] == t for t in times)
-        time = times[0]
-        del times
+    def init_gene_bin_conc_(self, gg_ids, time):
         x0 = self.global_state[time, :, :]
         x1 = self.step(x0, gg_ids) / (self.decay_rate ** 2)  # Decay does not apply at initialization, it's actually twice "undecayed"!
+        x1_g = x1[gg_ids, :]
 
-        self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time, gg_ids, :], x1[gg_ids, :])
+        self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time, gg_ids, :], x1_g)
 
     def eq6or7_onegene(self, gene_i, x0):
         num_bins = self.nBins_
@@ -273,19 +262,18 @@ class sergio:
 
     @jax.jit
     def step(self, x0, gg_ids):
+        assert not jnp.any(jnp.isnan(x0[self.DEBUG_current_genes, :]))
+
         x1 = jnp.zeros_like(x0)
-        for gene_i in gg_ids:  # actually genes in this level
-            x1_hat = self.b[gene_i] + jnp.sum(self.eq6or7_onegene(gene_i, x0)) # sum across j, eq 5
-            assert not jnp.any(jnp.isnan(x0[self.current_genes, :]))
-            x1_i = jax.nn.relu(x1_hat * self.decay_rate)
-            x1 = jax.ops.index_update(x1, jax.ops.index[gene_i, :], x1_i)
+        x1_hat_1 = self.basal_prod_rate[gg_ids] + jnp.sum(self.eq6or7_onegene(gg_ids, x0), axis=1)  # sum across j, eq 5
+        x1_i = jax.nn.relu(x1_hat_1 * self.decay_rate)
+        x1 = jax.ops.index_update(x1, jax.ops.index[gg_ids, :], x1_i)
+        for gene_i in gg_ids:
+            x1_hat = self.basal_prod_rate[gene_i] + jnp.sum(self.eq6or7_onegene(gene_i, x0), axis=0)  # sum across j, eq 5
+            assert jnp.all(x1_hat == x1_hat_1[gene_i])
         return x1
 
-    def calculate_prod_rate_fast(self, target_genes):
-        currStep = self.simulation_time[target_genes]
-        assert onp.all(currStep == currStep[0])  # TODO: why does this assert fail?!
-        time = currStep[0]
-
+    def calculate_prod_rate_fast(self, target_genes, time):
         if time == 0:
             x0 = jnp.zeros_like(self.global_state[time - 1, :, :])
         else:
@@ -296,42 +284,39 @@ class sergio:
         return x1[target_genes, :]
 
     def CLE_simulator_(self, level):
-        sim_set = self.level2verts_[level]
-        gg_ids = onp.array([gg[0].ID for gg in sim_set])
-        self.gg_types = onp.array([gg[0].is_master_regulator for gg in sim_set])
-        self.current_genes = gg_ids
+        genes_in_level = self.graph_level[level]
+        gene_in_level_ids = onp.array([gg[0].ID for gg in genes_in_level])
+        self.DEBUG_gg_types = onp.array([gg[0].is_master_regulator for gg in genes_in_level])
+        self.DEBUG_current_genes = gene_in_level_ids
 
         start = clock.time()
-        self.calculate_half_response_(level)
+        # currGenes = self.graph_level[level]
+        self.calculate_half_response_(genes_in_level, gene_in_level_ids)
         hr_time = clock.time() - start
         start = clock.time()
-        self.init_gene_bin_conc_(level)
+        level_time_step = self.simulation_time[level]
+        self.init_gene_bin_conc_(gene_in_level_ids, level_time_step)
         conc_time = clock.time() - start
 
         start = clock.time()
 
         for time in range(self.nReqSteps):
-            times = self.simulation_time[gg_ids]
-            assert onp.all(times == times[0])
-            time = times[0]
-            del times
+            xt = self.global_state[time, gene_in_level_ids, :]
 
-            xt = self.global_state[time, gg_ids, :]
-
-            prod_rates = self.calculate_prod_rate_fast(gg_ids)
+            prod_rates = self.calculate_prod_rate_fast(gene_in_level_ids, level_time_step)
             assert not jnp.any(jnp.isnan(prod_rates))
             assert jnp.all(prod_rates >= 0)
 
             noise = self.calc_noise(xt, self.decay_rate, prod_rates)
 
-            dx = self.dt_ * (prod_rates - self.decay_rate) + self.pdt * noise + self.actions[time, :, gg_ids]
+            dx = self.dt_ * (prod_rates - self.decay_rate) + self.pdt * noise + self.actions[time, :, gene_in_level_ids]
             assert not jnp.any(jnp.isnan(dx))
 
             x1 = xt + dx
             x1 = jax.nn.relu(x1)
 
-            self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time + 1, gg_ids, :], x1)
-            self.simulation_time[gg_ids] += 1
+            self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time + 1, gene_in_level_ids, :], x1)
+            self.simulation_time[level] += 1
 
         sim_time = clock.time() - start
         total = conc_time + sim_time + hr_time
