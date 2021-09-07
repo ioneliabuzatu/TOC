@@ -30,8 +30,9 @@ def main_control_steady_state():
         return -np.mean(np.sum(np.power(expr, 2), axis=1))
 
     actions = np.zeros((env.sampling_state_ * env.num_sc, env.num_bins, env.num_genes))
-    utils.plot(loss_fn, actions)
+    utils.plot(env.simulate, actions)
     print("plot")
+    return
 
     loss, grad = jax.value_and_grad(loss_fn)(actions)
     print("loss", loss)

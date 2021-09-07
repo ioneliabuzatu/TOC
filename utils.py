@@ -35,7 +35,7 @@ def _jaxpr_graph(jaxpr):
         graph.node(str(v), v.aval.str_short(), styles['invar'])
     for eqn in jaxpr.eqns:
         for f in eqn.source_info.frames:
-            if "jax/_src" not in f.file_name and "site-packages/jax/" not in f.file_name:
+            if "jax/_src" not in f.file_name and "site-packages/jax/" not in f.file_name and "src/jax" not in f.file_name:
                 function_name = f"{f.file_name.split('/')[-1]}:{f.function_name}:{f.line_num}"
                 break
 

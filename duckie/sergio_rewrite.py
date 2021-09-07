@@ -1,6 +1,5 @@
 import collections
 import csv
-import time as clock
 
 import jax.numpy as jnp
 import jax.ops
@@ -97,16 +96,16 @@ class sergio:
 
         self.find_levels_()  # make sure that this modifies the graph
 
-        self.basal_prod_rate = jnp.array(self.basal_prod_rate)
-        self.K = jnp.array(self.K)
-        self.adjacency = jnp.array(self.adjacency)
+        # self.basal_prod_rate = self.basal_prod_rate
+        # self.K = self.K
+        # self.adjacency = self.adjacency)
 
         self._targets = {k: sorted(v) for k, v in self._targets.items()}
-        self.half_responses = jnp.zeros((self.num_genes, self.num_genes))
+        self.half_responses = onp.zeros((self.num_genes, self.num_genes))
         self.simulation_time = onp.zeros(self.maxLevels_ + 1, dtype=int)
         global_state = onp.full((1 + self.sampling_state_ * self.num_sc, self.num_genes, self.num_bins), -1, dtype=jnp.float32)
         global_state[0, :, :] = 0.
-        self.global_state = jnp.array(global_state)
+        self.global_state = onp.array(global_state)
         self.scIndices_ = jnp.array(
             global_state.shape[0] + onp.random.randint(low=-self.sampling_state_ * self.num_sc, high=0, size=self.num_sc)) + 1  # 1 is to avoid selecting the first fake state
 
@@ -187,7 +186,7 @@ class sergio:
         k = grn.K[gg_ids]
         h = half_responses[gg_ids]
         x1_g = self.step(x0, b, k, h, grn.coop_state, grn.decay_rate) / (grn.decay_rate ** 2)  # Decay does not apply at initialization, it's actually twice "undecayed"!
-        self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time, gg_ids, :], x1_g)
+        return x1_g
 
     @staticmethod
     @jax.jit
@@ -230,13 +229,15 @@ class sergio:
         gene_in_level_ids = self.graph_level_ids[level]
         level_time_step = self.simulation_time[level]
 
-        if level != self.maxLevels_:
+        if level == self.maxLevels_:
+            self.global_state[level_time_step, gene_in_level_ids, :] = self.grn.basal_prod_rate[gene_in_level_ids] / self.grn.decay_rate
+        else:
             self.half_responses = sergio.calculate_half_response_(self.grn, gene_in_level_ids, self.scIndices_, self.global_state, self.half_responses)
-        self.init_gene_bin_conc_(self.grn, gene_in_level_ids, level_time_step, self.half_responses)
+            x1_g = self.init_gene_bin_conc_(self.grn, gene_in_level_ids, level_time_step, self.half_responses)
+            self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[level_time_step, gene_in_level_ids, :], x1_g)
 
         while self.simulation_time[level] <= self.nReqSteps:
             time = self.simulation_time[level]
-
             xt = self.global_state[time, gene_in_level_ids, :]
 
             prod_rates = self.calculate_prod_rate_fast(self.grn, gene_in_level_ids, level_time_step, self.global_state, self.half_responses)
