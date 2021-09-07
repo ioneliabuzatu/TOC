@@ -4,6 +4,7 @@ import jax
 import jax.numpy as np
 
 import duckie.sergio_rewrite
+import utils
 
 
 def main_control_steady_state():
@@ -24,12 +25,13 @@ def main_control_steady_state():
 
     def loss_fn(actions):
         expr = env.simulate(actions)
-        print(f"mean {float(expr.mean().primal):.4f}")
-        print(f"std {float(expr.std().primal):.4f}")
+        # print(f"mean {float(expr.mean().primal):.4f}")
+        # print(f"std {float(expr.std().primal):.4f}")
         return -np.mean(np.sum(np.power(expr, 2), axis=1))
 
     actions = np.zeros((env.sampling_state_ * env.num_sc, env.num_bins, env.num_genes))
-    # utils.plot(loss_fn, actions)
+    utils.plot(loss_fn, actions)
+    print("plot")
 
     loss, grad = jax.value_and_grad(loss_fn)(actions)
     print("loss", loss)
@@ -39,6 +41,6 @@ def main_control_steady_state():
 
 
 if __name__ == '__main__':
-    # main_control_steady_state()
-    with jax.disable_jit():
-        main_control_steady_state()
+    main_control_steady_state()
+    # with jax.disable_jit():
+    #     main_control_steady_state()

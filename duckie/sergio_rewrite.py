@@ -103,7 +103,7 @@ class sergio:
 
         self._targets = {k: sorted(v) for k, v in self._targets.items()}
         self.half_responses = jnp.zeros((self.num_genes, self.num_genes))
-        self.simulation_time = onp.ones(self.maxLevels_ + 1, dtype=int)  # x0 is pre-defined, simulation starts at 1
+        self.simulation_time = onp.zeros(self.maxLevels_ + 1, dtype=int)
         global_state = onp.full((1 + self.sampling_state_ * self.num_sc, self.num_genes, self.num_bins), -1, dtype=jnp.float32)
         global_state[0, :, :] = 0.
         self.global_state = jnp.array(global_state)
@@ -187,7 +187,6 @@ class sergio:
         k = grn.K[gg_ids]
         h = half_responses[gg_ids]
         x1_g = self.step(x0, b, k, h, grn.coop_state, grn.decay_rate) / (grn.decay_rate ** 2)  # Decay does not apply at initialization, it's actually twice "undecayed"!
-        # x1 = self.step(grn, x0, gg_ids, half_responses) / (self.decay_rate ** 2)  # Decay does not apply at initialization, it's actually twice "undecayed"!
         self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time, gg_ids, :], x1_g)
 
     @staticmethod
@@ -229,16 +228,11 @@ class sergio:
 
     def CLE_simulator_(self, level):
         gene_in_level_ids = self.graph_level_ids[level]
-
-        start = clock.time()
-        self.half_responses = sergio.calculate_half_response_(self.grn, gene_in_level_ids, self.scIndices_, self.global_state, self.half_responses)
-        hr_time = clock.time() - start
-        start = clock.time()
         level_time_step = self.simulation_time[level]
-        self.init_gene_bin_conc_(self.grn, gene_in_level_ids, level_time_step, self.half_responses)
-        conc_time = clock.time() - start
 
-        start = clock.time()
+        if level != self.maxLevels_:
+            self.half_responses = sergio.calculate_half_response_(self.grn, gene_in_level_ids, self.scIndices_, self.global_state, self.half_responses)
+        self.init_gene_bin_conc_(self.grn, gene_in_level_ids, level_time_step, self.half_responses)
 
         while self.simulation_time[level] <= self.nReqSteps:
             time = self.simulation_time[level]
@@ -260,11 +254,6 @@ class sergio:
             self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time + 1, gene_in_level_ids, :], x1)
             self.simulation_time[level] += 1
 
-        sim_time = clock.time() - start
-        total = conc_time + sim_time + hr_time
-        print(f"conc time: {conc_time / total}, half response {hr_time / total}, simulation time: {sim_time / total}")
-        print()
-
     def calc_noise(self, xt, decay, prod_rate):
         dw_p = onp.random.normal(size=xt.shape)  # TODO: use jnp
         dw_d = onp.random.normal(size=xt.shape)
@@ -282,4 +271,4 @@ class sergio:
             self.CLE_simulator_(level)
             print("Done with current level")
 
-        return self.global_state[:, :, self.scIndices_]
+        return self.global_state[self.scIndices_, :, :]
