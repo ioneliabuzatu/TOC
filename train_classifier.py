@@ -1,11 +1,13 @@
+import logging
 import os
+
 import numpy as np
 import torch
 from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 import config
 from classfier_cell_state import CellStateClassifier
@@ -37,19 +39,24 @@ def train(filepath_training_data, epochs=200):
     train_and_val_dataset = train_val_dataset(dataset, val_split=0.25)
     train_dataloader = DataLoader(train_and_val_dataset["train"], batch_size=config.batch_size, shuffle=True)
     val_dataloader = DataLoader(train_and_val_dataset["val"], batch_size=config.batch_size, shuffle=True)
-
-
+    
+    val_accuracy = float("-inf")
     for epoch in tqdm(range(epochs)):
         train_errors = update(network, train_dataloader, criterium, sgd)
         writer.add_scalar("TrainingLoss", np.asarray(train_errors).mean(), epoch)
         val_errors = evaluate(network, val_dataloader, criterium)
         writer.add_scalar("ValidationLoss", np.asarray(val_errors).mean(), epoch)
         accuracies = get_accuracy(network, val_dataloader)
-        writer.add_scalar("Accuracy", np.asarray(accuracies).mean(), epoch)
+        mean_accuracy = np.asarray(accuracies).mean()
+        writer.add_scalar("AccuracyVal", mean_accuracy, epoch)
 
-        torch.save(network.state_dict(), os.path.join(config.checkpoint_filepath_classifier,
-                                                      "classifier_5kgenes.pth"))
+        if mean_accuracy > val_accuracy:
+            val_accuracy = mean_accuracy
+            logging.info(f"Saving new model...new accuracy (val): {val_accuracy}")
+            torch.save(network.state_dict(), os.path.join(
+                config.checkpoint_filepath_classifier, "classifier_12_genes.pth")
+                       )
 
 
 if __name__ == "__main__":
-    train(filepath_training_data=config.filepath_train_toy, epochs=config.epochs)
+    train(filepath_training_data=config.filepath_12_genes, epochs=config.epochs)

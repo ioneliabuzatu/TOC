@@ -1,4 +1,8 @@
 ## TranscriptomicsOptimalControl
-```git clone --recursive```
+
+<object data="https://drive.google.com/file/d/1qAm9FilGrTRBrnC2Zst8jnAvPwzBB4pr/view?usp=sharing" type="application/pdf"> 
+    <p>Poster - initial idea: <a href="https://drive.google.com/file/d/1qAm9FilGrTRBrnC2Zst8jnAvPwzBB4pr/view?
+usp=sharing">View Poster</a>.</p>
+</object>
 
 
