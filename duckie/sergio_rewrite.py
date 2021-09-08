@@ -11,7 +11,20 @@ GRN = collections.namedtuple("GRN", "K basal_prod_rate adjacency decay_rate coop
 
 
 class sergio:
-    def __init__(self, number_genes, number_bins, number_sc, noise_params, decays, sampling_state=10, tol=1e-3, window_length=100, dt=0.01):
+    def __init__(self, input_file_taregts, input_file_regs, shared_coop_state=0):
+        if shared_coop_state <= 0:
+            raise NotImplemented
+
+        number_genes = 100  # Features
+        number_bins = 2  # Number of cell types
+        number_sc = 2  # 0,  # 300,  # Number of single cells for which expression is simulated
+        noise_params = 1
+        decays = 0.8
+        sampling_state = 3  # 15,
+        tol = 1e-3
+        window_length = 100
+        dt = 0.01
+
         self.num_genes = number_genes
         self.num_bins = number_bins
         self.num_sc = number_sc
@@ -30,15 +43,10 @@ class sergio:
         self.noise_level = noise_params
         self.decay_rate = decays
 
-        self.simulation_time = None
         self.half_responses = None
         self.pdt = jnp.power(self.dt_, 0.5)
-
-    def build_graph(self, input_file_taregts, input_file_regs, shared_coop_state=0):
-        if shared_coop_state <= 0:
-            raise NotImplemented
-
         self.coop_state = shared_coop_state
+
         for i in range(self.num_genes):
             self.graph_[i] = {}
             self.graph_[i]['targets'] = []
@@ -48,7 +56,6 @@ class sergio:
         self.basal_prod_rate = onp.zeros((self.num_genes, self.num_bins,))
         self.K = onp.zeros((self.num_genes, self.num_genes))
         self.adjacency = onp.zeros((self.num_genes, self.num_genes))
-        self._targets = collections.defaultdict(list)
 
         with open(input_file_taregts, 'r') as f:
             reader = csv.reader(f, delimiter=',')
@@ -68,14 +75,12 @@ class sergio:
 
                     allRegs.append(regId)
                     currParents.append(regId)
-                    self._targets[regId].append(row0)
                     self.graph_[regId]['targets'].append(row0)
 
                 self.graph_[row0]['regs'] = currParents
                 self.graph_[row0]['level'] = -1  # will be modified later
                 allTargets.append(row0)
 
-        # self.master_regulators_idx_ = set(np.setdiff1d(allRegs, allTargets))
         with open(input_file_regs, 'r') as f:
             masterRegs = []
             for row in csv.reader(f, delimiter=','):
@@ -96,19 +101,10 @@ class sergio:
 
         self.find_levels_()  # make sure that this modifies the graph
 
-        # self.basal_prod_rate = self.basal_prod_rate
-        # self.K = self.K
-        # self.adjacency = self.adjacency)
-
-        self._targets = {k: sorted(v) for k, v in self._targets.items()}
         self.half_responses = onp.zeros((self.num_genes, self.num_genes))
-        self.simulation_time = onp.zeros(self.maxLevels_ + 1, dtype=int)
-        global_state = onp.full((1 + self.sampling_state_ * self.num_sc, self.num_genes, self.num_bins), -1, dtype=jnp.float32)
-        global_state[0, :, :] = 0.
-        self.global_state = onp.array(global_state)
-        self.scIndices_ = jnp.array(
-            global_state.shape[0] + onp.random.randint(low=-self.sampling_state_ * self.num_sc, high=0, size=self.num_sc)) + 1  # 1 is to avoid selecting the first fake state
+        self.global_state = global_state = onp.full((self.sampling_state_ * self.num_sc, self.num_genes, self.num_bins), -1, dtype=jnp.float32)
 
+        self.scIndices_ = jnp.array(global_state.shape[0] + onp.random.randint(low=-self.sampling_state_ * self.num_sc, high=0, size=self.num_sc))
         self.grn = GRN(self.K, self.basal_prod_rate, self.adjacency, self.decay_rate, self.coop_state)
 
     def find_levels_(self):
@@ -125,7 +121,6 @@ class sergio:
         This also sets a dictionary that maps a level to a matrix (in form of python list)
         of all genes in that level versus all bins
         """
-
         U = set()
         Z = set()
         V = set(self.graph_.keys())
@@ -180,14 +175,6 @@ class sergio:
         mes = jnp.array(mes)
         return jax.ops.index_add(half_responses, jax.ops.index[gg_ids, :], mes)
 
-    def init_gene_bin_conc_(self, grn, gg_ids, time, half_responses):
-        x0 = self.global_state[time, :, :]
-        b = grn.basal_prod_rate[gg_ids]
-        k = grn.K[gg_ids]
-        h = half_responses[gg_ids]
-        x1_g = self.step(x0, b, k, h, grn.coop_state, grn.decay_rate) / (grn.decay_rate ** 2)  # Decay does not apply at initialization, it's actually twice "undecayed"!
-        return x1_g
-
     @staticmethod
     @jax.jit
     def transcription_factor_model(coop_state, x0, k, half_response):
@@ -205,55 +192,40 @@ class sergio:
 
     @staticmethod
     @jax.jit
-    def step(x0, b, k, h, coop_state, decay_rate):
+    def step(x0, b, k, h, coop_state):
         p_ij = sergio.transcription_factor_model(coop_state, x0, k, h)
         x1_hat_1 = b + jnp.sum(p_ij, axis=1)  # sum across j, eq 5
-        x1_i = jax.nn.relu(x1_hat_1 * decay_rate)
+        x1_i = jax.nn.relu(x1_hat_1)
         return x1_i
 
-    @staticmethod
-    @jax.jit
-    def calculate_prod_rate_fast(grn: GRN, gg_ids, time, global_state, half_responses):
-        x0 = global_state[time, :, :]
-        # x0 = global_state[time, :, :]
-        b = grn.basal_prod_rate[gg_ids]
-        k = grn.K[gg_ids]
-        h = half_responses[gg_ids]
-        x1_g = sergio.step(x0, b, k, h, grn.coop_state, grn.decay_rate)
-        # x1 = sergio.step(grn, x0, gg_ids, half_responses)
-        # TODO: a sum is missing here
+    def simulate_level(self, gg_ids, actions):
+        self.half_responses = sergio.calculate_half_response_(self.grn, gg_ids, self.scIndices_, self.global_state, self.half_responses)
 
-        return x1_g
+        xt = self.step(
+            self.global_state[0, :, :],
+            self.grn.basal_prod_rate[gg_ids],
+            self.grn.K[gg_ids],
+            self.half_responses[gg_ids],
+            self.grn.coop_state
+        ) / self.grn.decay_rate  # Decay does not apply at initialization, it's actually "undecayed"!
 
-    def CLE_simulator_(self, level):
-        gene_in_level_ids = self.graph_level_ids[level]
-        level_time_step = self.simulation_time[level]
+        self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[0, gg_ids, :], xt)
 
-        if level == self.maxLevels_:
-            self.global_state[level_time_step, gene_in_level_ids, :] = self.grn.basal_prod_rate[gene_in_level_ids] / self.grn.decay_rate
-        else:
-            self.half_responses = sergio.calculate_half_response_(self.grn, gene_in_level_ids, self.scIndices_, self.global_state, self.half_responses)
-            x1_g = self.init_gene_bin_conc_(self.grn, gene_in_level_ids, level_time_step, self.half_responses)
-            self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[level_time_step, gene_in_level_ids, :], x1_g)
-
-        while self.simulation_time[level] <= self.nReqSteps:
-            time = self.simulation_time[level]
-            xt = self.global_state[time, gene_in_level_ids, :]
-
-            prod_rates = self.calculate_prod_rate_fast(self.grn, gene_in_level_ids, level_time_step, self.global_state, self.half_responses)
-            assert not jnp.any(jnp.isnan(prod_rates))
-            assert jnp.all(prod_rates >= 0)
+        for time in range(self.nReqSteps):
+            prod_rates = sergio.step(
+                self.global_state[time, :, :],
+                self.grn.basal_prod_rate[gg_ids],
+                self.grn.K[gg_ids],
+                self.half_responses[gg_ids],
+                self.grn.coop_state,
+            ) * self.grn.decay_rate
 
             noise = self.calc_noise(xt, self.decay_rate, prod_rates)
 
-            dx = self.dt_ * (prod_rates - self.decay_rate) + self.pdt * noise + self.actions[time, :, gene_in_level_ids]
-            assert not jnp.any(jnp.isnan(dx))
-
+            dx = self.dt_ * (prod_rates - self.decay_rate) + self.pdt * noise + actions[time, :]
             x1 = xt + dx
-            x1 = jax.nn.relu(x1)
-
-            self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time + 1, gene_in_level_ids, :], x1)
-            self.simulation_time[level] += 1
+            xt = jax.nn.relu(x1)
+            self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[time, gg_ids, :], xt)
 
     def calc_noise(self, xt, decay, prod_rate):
         dw_p = onp.random.normal(size=xt.shape)  # TODO: use jnp
@@ -266,10 +238,8 @@ class sergio:
         return noise
 
     def simulate(self, actions):
-        self.actions = actions
         for level in range(self.maxLevels_, -1, -1):
-            print("Start simulating new level")
-            self.CLE_simulator_(level)
-            print("Done with current level")
+            gg_ids = self.graph_level_ids[level]
+            self.simulate_level(gg_ids, actions[:, gg_ids, :])
 
         return self.global_state[self.scIndices_, :, :]
