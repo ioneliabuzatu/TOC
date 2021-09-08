@@ -3,11 +3,11 @@ import time
 import jax
 import jax.numpy as np
 
-import duckie.sergio_rewrite
+import duckie.woody
 
 
 def main_control_steady_state():
-    env = duckie.sergio_rewrite.sergio(
+    env = duckie.woody.Woody(
         input_file_taregts="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Interaction_cID_4.txt",
         input_file_regs="duckie/2_cells_type_from_De-noised_100G_9T_300cPerT_4_DS1_Regs_cID_4.txt",
         shared_coop_state=2

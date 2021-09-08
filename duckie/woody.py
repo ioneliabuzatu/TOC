@@ -5,12 +5,11 @@ import jax.numpy as jnp
 import jax.ops
 import numpy as onp
 
-from duckie.genes import gene
 
 GRN = collections.namedtuple("GRN", "K basal_prod_rate adjacency decay_rate coop_state")
 
 
-class sergio:
+class Woody:
     def __init__(self, input_file_taregts, input_file_regs, shared_coop_state=0):
         if shared_coop_state <= 0:
             raise NotImplemented
@@ -137,13 +136,11 @@ class sergio:
                 self.graph_[v]['level'] = currLayer
                 U.add(v)
                 if {v}.issubset(self.master_regulators_idx_):
-                    allBinList = [gene(self, v, 'MR', i) for i in range(self.num_bins)]
-                    self.graph_level[currLayer].append(allBinList)
+                    self.graph_level[currLayer].append(list(range(self.num_bins)))
                     self.gID_to_level_and_idx[v] = (currLayer, idx)
                     idx += 1
                 else:
-                    allBinList = [gene(self, v, 'T', i) for i in range(self.num_bins)]
-                    self.graph_level[currLayer].append(allBinList)
+                    self.graph_level[currLayer].append(list(range(self.num_bins)))
                     self.gID_to_level_and_idx[v] = (currLayer, idx)
                     idx += 1
 
@@ -155,7 +152,7 @@ class sergio:
         self.graph_level.pop(currLayer)
         self.graph_level_ids = [None, ] * len(self.graph_level)
         for level, genes_in_level in self.graph_level.items():
-            self.graph_level_ids[level] = onp.array([gg[0].ID for gg in genes_in_level])
+            self.graph_level_ids[level] = onp.array([gg[0] for gg in genes_in_level])
         self.maxLevels_ = currLayer - 1
 
     @staticmethod
@@ -193,13 +190,13 @@ class sergio:
     @staticmethod
     @jax.jit
     def step(x0, b, k, h, coop_state):
-        p_ij = sergio.transcription_factor_model(coop_state, x0, k, h)
+        p_ij = Woody.transcription_factor_model(coop_state, x0, k, h)
         x1_hat_1 = b + jnp.sum(p_ij, axis=1)  # sum across j, eq 5
         x1_i = jax.nn.relu(x1_hat_1)
         return x1_i
 
     def simulate_level(self, gg_ids, actions):
-        self.half_responses = sergio.calculate_half_response_(self.grn, gg_ids, self.scIndices_, self.global_state, self.half_responses)
+        self.half_responses = Woody.calculate_half_response_(self.grn, gg_ids, self.scIndices_, self.global_state, self.half_responses)
 
         xt = self.step(
             self.global_state[0, :, :],
@@ -212,7 +209,7 @@ class sergio:
         self.global_state = jax.ops.index_update(self.global_state, jax.ops.index[0, gg_ids, :], xt)
 
         for time in range(self.nReqSteps):
-            prod_rates = sergio.step(
+            prod_rates = Woody.step(
                 self.global_state[time, :, :],
                 self.grn.basal_prod_rate[gg_ids],
                 self.grn.K[gg_ids],
