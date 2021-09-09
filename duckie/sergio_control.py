@@ -776,7 +776,7 @@ class sergio(object):
                 noise_U = self.calculate_noise(nc, decay_U, gID, prod_rate_U)
                 noise_S = self.calculate_noise(nc, decay_S, gID, prod_rate_S)
 
-                curr_dU = self.dt_ * (prod_rate_U - decay_U) + jnp.power(self.dt_, 0.5) * noise_U * self.actions[binID, gID]
+                curr_dU = (self.dt_ * (prod_rate_U - decay_U) + jnp.power(self.dt_, 0.5) * noise_U) + self.actions[binID, gID]
                 curr_dS = self.dt_ * (prod_rate_S - decay_S) + jnp.power(self.dt_, 0.5) * noise_S
 
                 for i in range(nc):
